@@ -2,7 +2,7 @@ import { X, Trash2, AlertTriangle, UploadCloud, FileText, Download } from 'lucid
 import { db } from '../lib/firebase';
 import { collection, addDoc, serverTimestamp, deleteDoc, doc as firestoreDoc, updateDoc } from 'firebase/firestore';
 import { Vehicle, VehicleDocument } from '../types';
-import { getAlertStatus, getMissingFields } from '../utils';
+import { getAlertStatus, getMissingFields, getVehicleAlerts } from '../utils';
 
 interface VehicleModalProps {
   selectedVehicle: Vehicle;
@@ -59,57 +59,7 @@ export const VehicleModal = ({
 
         {!isEditing && (
           <div className="space-y-4 mb-6">
-            {/* Summary Alerts Box */}
-            {getMissingFields(selectedVehicle).length > 0 && (
-              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
-                <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
-                <div>
-                  <h4 className="font-bold text-amber-800 text-sm">Información Incompleta</h4>
-                  <p className="text-amber-700 text-xs mt-1">Faltan los siguientes datos: {getMissingFields(selectedVehicle).join(', ')}</p>
-                </div>
-              </div>
-            )}
-
-            {/* Active Alerts List */}
-            {(() => {
-              const vehicleAlerts = [];
-              if (selectedVehicle.proximaITV) {
-                const st = getAlertStatus(selectedVehicle.proximaITV);
-                if (st.status !== 'success' && st.status !== 'unknown') vehicleAlerts.push({ label: 'ITV Técnica', ...st });
-              }
-              if (selectedVehicle.vencimientoATP) {
-                const st = getAlertStatus(selectedVehicle.vencimientoATP);
-                if (st.status !== 'success' && st.status !== 'unknown') vehicleAlerts.push({ label: 'Vencimiento ATP', ...st });
-              }
-              if (selectedVehicle.revisionTacografo) {
-                const st = getAlertStatus(selectedVehicle.revisionTacografo);
-                if (st.status !== 'success' && st.status !== 'unknown') vehicleAlerts.push({ label: 'Revisión Tacógrafo', ...st });
-              }
-
-              if (vehicleAlerts.length > 0) {
-                return (
-                  <div className="bg-red-50 border border-red-100 rounded-xl p-4 space-y-2">
-                    <h4 className="text-xs font-bold text-red-600 uppercase tracking-wider flex items-center gap-2">
-                      <AlertTriangle className="w-3 h-3" />
-                      Alertas Activas ({vehicleAlerts.length})
-                    </h4>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      {vehicleAlerts.map((al, i) => (
-                        <div key={i} className="flex items-center justify-between bg-white/50 p-2 rounded-lg border border-red-100">
-                          <span className="text-xs font-bold text-slate-700">{al.label}</span>
-                          <span className={`text-[9px] px-2 py-0.5 rounded font-black ${
-                            al.status === 'danger' ? 'bg-red-100 text-red-600' : 'bg-amber-100 text-amber-600'
-                          }`}>
-                            {al.text}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                );
-              }
-              return null;
-            })()}
+            {/* The active alerts and missing fields summary boxes were removed as per user request */}
           </div>
         )}
 

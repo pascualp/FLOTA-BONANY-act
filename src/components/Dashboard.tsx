@@ -1,5 +1,7 @@
 import { UploadCloud } from 'lucide-react';
 import { Vehicle, Alert } from '../types';
+import { db } from '../lib/firebase';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 
 interface DashboardProps {
   alerts: Alert[];
@@ -80,8 +82,20 @@ export const Dashboard = ({ alerts, stats, setActiveTab, setSelectedVehicle }: D
           <p className="text-xs font-medium text-center">
             Suelte documentos aquí
           </p>
-          <input type="file" multiple className="hidden" onChange={(e) => {
-            if (e.target.files?.length) alert(`Funcionalidad de subida lista para integrar con Storage. Se han seleccionado ${e.target.files.length} archivos.`);
+          <input type="file" multiple className="hidden" onChange={async (e) => {
+            if (e.target.files?.length) {
+              const files = Array.from(e.target.files);
+              for (const file of files) {
+                await addDoc(collection(db, 'documents'), {
+                  vehicleId: 'unassigned', // Rapid upload might be unassigned initially
+                  name: file.name,
+                  type: file.type || 'application/octet-stream',
+                  url: URL.createObjectURL(file),
+                  uploadedAt: serverTimestamp()
+                });
+              }
+              alert(`${files.length} archivos registrados en el historial.`);
+            }
           }} />
         </label>
       </div>

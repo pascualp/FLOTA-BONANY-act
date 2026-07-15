@@ -40,27 +40,34 @@ export const getMissingFields = (v: Vehicle) => {
   return missing;
 };
 
+export const getVehicleAlerts = (v: Vehicle) => {
+  const alerts: { label: string; status: 'danger' | 'warning' | 'success' | 'unknown'; text: string; date: string }[] = [];
+  
+  const fields = [
+    { label: 'ITV Técnica', value: v.proximaITV },
+    { label: 'Vencimiento ATP', value: v.vencimientoATP },
+    { label: 'Revisión Tacógrafo', value: v.revisionTacografo }
+  ];
+
+  fields.forEach(f => {
+    if (f.value) {
+      const st = getAlertStatus(f.value);
+      if (st.status === 'warning' || st.status === 'danger') {
+        alerts.push({ label: f.label, ...st, date: f.value });
+      }
+    }
+  });
+
+  return alerts;
+};
+
 export const getAllAlerts = (vehicles: Vehicle[]) => {
   const alerts: any[] = [];
   vehicles.forEach(v => {
-    if (v.proximaITV) {
-      const st = getAlertStatus(v.proximaITV);
-      if (st.status === 'warning' || st.status === 'danger') {
-        alerts.push({ vehicle: v, type: 'ITV Técnica', date: v.proximaITV, status: st });
-      }
-    }
-    if (v.vencimientoATP) {
-      const st = getAlertStatus(v.vencimientoATP);
-      if (st.status === 'warning' || st.status === 'danger') {
-        alerts.push({ vehicle: v, type: 'Vencimiento ATP', date: v.vencimientoATP, status: st });
-      }
-    }
-    if (v.revisionTacografo) {
-      const st = getAlertStatus(v.revisionTacografo);
-      if (st.status === 'warning' || st.status === 'danger') {
-        alerts.push({ vehicle: v, type: 'Revisión Tacógrafo', date: v.revisionTacografo, status: st });
-      }
-    }
+    const vAlerts = getVehicleAlerts(v);
+    vAlerts.forEach(a => {
+      alerts.push({ vehicle: v, type: a.label, date: a.date, status: { status: a.status, text: a.text } });
+    });
   });
   return alerts.sort((a, b) => {
     const da = parseEsDate(a.date);

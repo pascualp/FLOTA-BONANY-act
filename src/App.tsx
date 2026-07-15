@@ -71,6 +71,8 @@ export default function App() {
   const stats = calculateStats(vehicles);
   const alerts = getAllAlerts(vehicles);
 
+  const currentVehicle = selectedVehicle ? vehicles.find(v => v.id === selectedVehicle.id) || selectedVehicle : null;
+
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
@@ -221,9 +223,9 @@ export default function App() {
       {/* Modals */}
       {showAddModal && <AddVehicleModal setShowAddModal={setShowAddModal} />}
       
-      {selectedVehicle && (
+      {currentVehicle && (
         <VehicleModal 
-          selectedVehicle={selectedVehicle} 
+          selectedVehicle={currentVehicle} 
           setSelectedVehicle={setSelectedVehicle} 
           isEditing={isEditing} 
           setIsEditing={setIsEditing} 

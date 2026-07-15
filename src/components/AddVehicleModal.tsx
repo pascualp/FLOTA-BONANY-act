@@ -20,25 +20,60 @@ export const AddVehicleModal = ({ setShowAddModal }: AddVehicleModalProps) => {
           await addDoc(collection(db, 'vehicles'), {
             matricula: formData.get('matricula'),
             marca: formData.get('marca'),
-            tipo: 'Añadido Manual',
+            tipo: formData.get('tipo') || 'S/D',
+            bastidor: formData.get('bastidor') || '',
             proximaITV: formData.get('itv'),
+            vencimientoATP: formData.get('atp') || '',
+            revisionTacografo: formData.get('tacografo') || '',
+            chofer: formData.get('chofer') || '',
             createdAt: serverTimestamp()
           });
           setShowAddModal(false);
-        }} className="space-y-4">
-          <div>
-            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Matrícula</label>
-            <input name="matricula" required className="w-full border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none" />
+        }} className="space-y-4 max-h-[70vh] overflow-y-auto px-1">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Matrícula</label>
+              <input name="matricula" required className="w-full border border-slate-200 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Marca / Modelo</label>
+              <input name="marca" required className="w-full border border-slate-200 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Tipo de Vehículo</label>
+              <input name="tipo" placeholder="Trailer, Rígido..." className="w-full border border-slate-200 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nº Bastidor</label>
+              <input name="bastidor" className="w-full border border-slate-200 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+            </div>
+          </div>
+          <div className="p-4 bg-slate-50 rounded-2xl space-y-4 border border-slate-100">
+            <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Vencimientos Iniciales</h4>
+            <div className="grid grid-cols-1 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Próxima ITV</label>
+                <input name="itv" placeholder="DD/MM/YYYY" className="w-full border border-slate-200 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white" />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Vencimiento ATP</label>
+                <input name="atp" placeholder="DD/MM/YYYY" className="w-full border border-slate-200 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white" />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Revisión Tacógrafo</label>
+                <input name="tacografo" placeholder="DD/MM/YYYY" className="w-full border border-slate-200 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white" />
+              </div>
+            </div>
           </div>
           <div>
-            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Marca / Modelo</label>
-            <input name="marca" required className="w-full border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none" />
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Chofer Habitual</label>
+            <input name="chofer" className="w-full border border-slate-200 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
           </div>
-          <div>
-            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Próxima ITV</label>
-            <input name="itv" placeholder="DD/MM/YYYY" className="w-full border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none" />
-          </div>
-          <button type="submit" className="w-full bg-blue-600 text-white font-bold rounded-lg p-3 hover:bg-blue-700 mt-4">Guardar Vehículo</button>
+          <button type="submit" className="w-full bg-blue-600 text-white font-bold rounded-xl p-3 hover:bg-blue-700 mt-4 shadow-lg shadow-blue-100 transition-all hover:scale-[1.02] active:scale-[0.98]">
+            Guardar Vehículo
+          </button>
         </form>
       </div>
     </div>

@@ -1,5 +1,6 @@
 import { Timestamp } from 'firebase/firestore';
 
+// Core entity types for the Fleet Management System
 export interface Vehicle {
   id?: string;
   matricula: string;
