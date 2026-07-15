@@ -1,0 +1,53 @@
+{
+  "collections": [
+    {
+      "name": "vehicles",
+      "rules": [
+        {
+          "allow": ["read", "write"],
+          "condition": "true"
+        }
+      ],
+      "schema": {
+        "type": "object",
+        "properties": {
+          "matricula": { "type": "string" },
+          "marca": { "type": "string" },
+          "tipo": { "type": "string" },
+          "capacidad": { "type": "string" },
+          "fechaMatriculacion": { "type": "string" },
+          "bastidor": { "type": "string" },
+          "seguroAseguradora": { "type": "string" },
+          "seguroPoliza": { "type": "string" },
+          "proximaITV": { "type": "string" },
+          "vencimientoATP": { "type": "string" },
+          "permisoCirculacion": { "type": "string" },
+          "revisionTacografo": { "type": "string" },
+          "tarjetaTransporte": { "type": "string" },
+          "estado": { "type": "string" },
+          "createdAt": { "type": "timestamp" },
+          "updatedAt": { "type": "timestamp" }
+        }
+      }
+    },
+    {
+      "name": "documents",
+      "rules": [
+        {
+          "allow": ["read", "write"],
+          "condition": "true"
+        }
+      ],
+      "schema": {
+        "type": "object",
+        "properties": {
+          "vehicleId": { "type": "string" },
+          "name": { "type": "string" },
+          "type": { "type": "string" },
+          "url": { "type": "string" },
+          "uploadedAt": { "type": "timestamp" }
+        }
+      }
+    }
+  ]
+}

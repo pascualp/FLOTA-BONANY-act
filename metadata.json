@@ -1,0 +1,6 @@
+{
+  "name": "FLOTAS BONANY",
+  "description": "Dashboard para gestión de flotas, documentos y alertas.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
