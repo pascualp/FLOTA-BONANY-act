@@ -205,7 +205,6 @@ export default function App() {
                   <tr 
                     key={idx} 
                     onClick={() => {
-                       setActiveTab('vehicles');
                        setSelectedVehicle(al.vehicle);
                     }}
                     className="border-b border-slate-50 cursor-pointer hover:bg-slate-50 transition-colors"
@@ -248,8 +247,8 @@ export default function App() {
             <p className="text-xs font-medium text-center">
               Suelte documentos aquí
             </p>
-            <input type="file" className="hidden" onChange={(e) => {
-              if (e.target.files?.length) alert("Funcionalidad de subida lista para integrar con Storage");
+            <input type="file" multiple className="hidden" onChange={(e) => {
+              if (e.target.files?.length) alert(`Funcionalidad de subida lista para integrar con Storage. Se han seleccionado ${e.target.files.length} archivos.`);
             }} />
           </label>
         </div>
@@ -288,6 +287,7 @@ export default function App() {
   );
 
   const renderVehicles = () => {
+    const allAlerts = getAllAlerts();
     const filteredVehicles = vehicles.filter(v => {
       if (!searchQuery) return true;
       const term = searchQuery.toLowerCase();
@@ -321,15 +321,24 @@ export default function App() {
              </div>
            ) : (
              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-               {filteredVehicles.map(v => (
+               {filteredVehicles.map(v => {
+                 const vAlerts = allAlerts.filter(a => a.vehicle.id === v.id);
+                 return (
                  <div 
                    key={v.id} 
                    onClick={() => setSelectedVehicle(v)}
-                   className="border border-slate-100 p-4 rounded-2xl hover:shadow-md hover:border-blue-200 transition-all cursor-pointer bg-white"
+                   className="border border-slate-100 p-4 rounded-2xl hover:shadow-md hover:border-blue-200 transition-all cursor-pointer bg-white relative overflow-hidden"
                  >
                    <div className="flex justify-between items-start mb-2">
                      <div>
-                       <h5 className="font-bold text-slate-900">{v.matricula}</h5>
+                       <h5 className="font-bold text-slate-900 flex items-center gap-2">
+                         {v.matricula}
+                         {vAlerts.length > 0 && (
+                           <span className="bg-red-100 text-red-600 text-[10px] px-2 py-0.5 rounded-full">
+                             {vAlerts.length} {vAlerts.length === 1 ? 'alerta' : 'alertas'}
+                           </span>
+                         )}
+                       </h5>
                        <p className="text-xs text-slate-500">{v.marca} - {v.tipo}</p>
                      </div>
                      <Car className="w-5 h-5 text-blue-400" />
@@ -340,7 +349,7 @@ export default function App() {
                      <div className="flex justify-between"><span className="text-slate-500">Seguro:</span> <span className="font-medium">{v.aseguradora || 'N/A'}</span></div>
                    </div>
                  </div>
-               ))}
+               )})}
              </div>
            )}
          </div>
@@ -395,7 +404,6 @@ export default function App() {
                       <td className="px-4 py-4">
                         <button 
                           onClick={() => {
-                             setActiveTab('vehicles');
                              setSelectedVehicle(al.vehicle);
                              // Set editing mode immediately so they can update the date
                              setIsEditing(true);
@@ -722,16 +730,18 @@ export default function App() {
                  <label className="bg-blue-50 text-blue-600 px-4 py-2 rounded-lg font-bold text-xs cursor-pointer hover:bg-blue-100 transition-colors flex items-center gap-2">
                     <UploadCloud className="w-4 h-4" />
                     Subir Archivo
-                    <input type="file" className="hidden" onChange={async (e) => {
-                      if (e.target.files && e.target.files[0]) {
-                         const file = e.target.files[0];
-                         await addDoc(collection(db, 'documents'), {
-                           vehicleId: selectedVehicle.id,
-                           name: file.name,
-                           type: file.type || 'application/octet-stream',
-                           url: URL.createObjectURL(file), // temporary URL for preview logic
-                           uploadedAt: serverTimestamp()
-                         });
+                    <input type="file" multiple className="hidden" onChange={async (e) => {
+                      if (e.target.files && e.target.files.length > 0) {
+                         const files = Array.from(e.target.files);
+                         for (const file of files) {
+                           await addDoc(collection(db, 'documents'), {
+                             vehicleId: selectedVehicle.id,
+                             name: file.name,
+                             type: file.type || 'application/octet-stream',
+                             url: URL.createObjectURL(file), // temporary URL for preview logic
+                             uploadedAt: serverTimestamp()
+                           });
+                         }
                       }
                     }} />
                  </label>
