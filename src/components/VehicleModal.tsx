@@ -1,7 +1,6 @@
 import { X, Trash2, AlertTriangle, UploadCloud, FileText, Download } from 'lucide-react';
-import { db, storage } from '../lib/firebase';
+import { db } from '../lib/firebase';
 import { collection, addDoc, serverTimestamp, deleteDoc, doc as firestoreDoc, updateDoc } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { Vehicle, VehicleDocument } from '../types';
 import { getAlertStatus, getMissingFields, getVehicleAlerts } from '../utils';
 
@@ -169,20 +168,31 @@ export const VehicleModal = ({
                      const files = Array.from(e.target.files);
                      for (const file of files) {
                        try {
-                         const storageRef = ref(storage, `vehicles/${selectedVehicle.id}/${Date.now()}_${file.name}`);
-                         const snapshot = await uploadBytes(storageRef, file);
-                         const downloadURL = await getDownloadURL(snapshot.ref);
-                         
-                         await addDoc(collection(db, 'documents'), {
-                           vehicleId: selectedVehicle.id,
-                           name: file.name,
-                           type: file.type || 'application/octet-stream',
-                           url: downloadURL,
-                           uploadedAt: serverTimestamp()
-                         });
+                         const maxSize = 700 * 1024; // 700KB límite para Firestore
+                         if (file.size > maxSize) {
+                           alert(`El archivo ${file.name} supera el límite de 700KB. Por favor, comprímelo o usa un formato más ligero antes de subirlo.`);
+                           continue;
+                         }
+                         const reader = new FileReader();
+                         reader.onload = async (event) => {
+                           try {
+                             const base64Url = event.target?.result as string;
+                             await addDoc(collection(db, 'documents'), {
+                               vehicleId: selectedVehicle.id,
+                               name: file.name,
+                               type: file.type || 'application/octet-stream',
+                               url: base64Url,
+                               uploadedAt: serverTimestamp()
+                             });
+                           } catch (err) {
+                             console.error("Error guardando documento:", err);
+                             alert("Error al guardar el archivo en la base de datos.");
+                           }
+                         };
+                         reader.readAsDataURL(file);
                        } catch (error) {
-                         console.error("Error al subir archivo:", error);
-                         alert("Error al subir el archivo: " + file.name);
+                         console.error("Error al procesar archivo:", error);
+                         alert("Error al procesar el archivo: " + file.name);
                        }
                      }
                   }
@@ -207,7 +217,7 @@ export const VehicleModal = ({
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
-                      <a href={doc.url} target="_blank" rel="noreferrer" className="p-2 hover:bg-slate-200 rounded-lg text-slate-500 transition-colors">
+                      <a href={doc.url} download={doc.name} target="_blank" rel="noreferrer" className="p-2 hover:bg-slate-200 rounded-lg text-slate-500 transition-colors">
                         <Download className="w-4 h-4" />
                       </a>
                       <button 
