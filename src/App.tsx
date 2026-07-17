@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import {
   Car,
   AlertCircle,
-  LayoutDashboard,
   Plus,
   CheckCircle2
 } from 'lucide-react';
@@ -13,7 +12,6 @@ import { Vehicle, VehicleDocument } from './types';
 import { getAllAlerts, calculateStats } from './utils';
 
 // Components
-import { Dashboard } from './components/Dashboard';
 import { VehicleList } from './components/VehicleList';
 import { AlertsList } from './components/AlertsList';
 import { VehicleModal } from './components/VehicleModal';
@@ -22,7 +20,7 @@ import { AddVehicleModal } from './components/AddVehicleModal';
 export default function App() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeTab, setActiveTab] = useState('vehicles');
   const [showAddModal, setShowAddModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null);
@@ -98,13 +96,6 @@ export default function App() {
         <nav className="flex-1">
           <ul className="space-y-2 text-sm font-medium">
             <li 
-              onClick={() => setActiveTab('dashboard')} 
-              className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all duration-200 ${activeTab === 'dashboard' ? 'text-blue-600 bg-blue-50 shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}
-            >
-              <LayoutDashboard className="w-5 h-5" />
-              Panel de Control
-            </li>
-            <li 
               onClick={() => setActiveTab('vehicles')} 
               className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all duration-200 ${activeTab === 'vehicles' ? 'text-blue-600 bg-blue-50 shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}
             >
@@ -138,7 +129,7 @@ export default function App() {
         <div className="flex justify-between items-center shrink-0">
           <div>
             <h2 className="text-2xl font-bold text-slate-800">
-              {activeTab === 'dashboard' ? 'Estado de la Flota' : activeTab === 'alerts' ? 'Alertas de Vencimiento' : 'Directorio de Vehículos'}
+              {activeTab === 'alerts' ? 'Alertas de Vencimiento' : 'Directorio de Vehículos'}
             </h2>
             <p className="text-slate-500 text-sm">Resumen en tiempo real y trámites pendientes.</p>
           </div>
@@ -151,37 +142,7 @@ export default function App() {
           </button>
         </div>
 
-        {/* Statistics Row */}
-        {activeTab === 'dashboard' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 shrink-0">
-            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
-              <p className="text-slate-500 text-[10px] font-bold uppercase tracking-wider mb-1">Vehículos Totales</p>
-              <h3 className="text-3xl font-bold text-slate-900">{stats.total}</h3>
-            </div>
-            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
-              <p className="text-slate-500 text-[10px] font-bold uppercase tracking-wider mb-1">Vencen &lt; 30d</p>
-              <h3 className="text-3xl font-bold text-amber-600">{stats.itvProxMes}</h3>
-            </div>
-            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
-              <p className="text-slate-500 text-[10px] font-bold uppercase tracking-wider mb-1">Vencimientos Hoy</p>
-              <h3 className="text-3xl font-bold text-red-600">{stats.criticas}</h3>
-            </div>
-            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
-              <p className="text-slate-500 text-[10px] font-bold uppercase tracking-wider mb-1">Estado Operativo</p>
-              <h3 className="text-3xl font-bold text-emerald-600">{stats.operativo}</h3>
-            </div>
-          </div>
-        )}
-
         {/* Dynamic Content */}
-        {activeTab === 'dashboard' && (
-          <Dashboard 
-            alerts={alerts} 
-            stats={stats} 
-            setActiveTab={setActiveTab} 
-            setSelectedVehicle={setSelectedVehicle} 
-          />
-        )}
         {activeTab === 'vehicles' && (
           <VehicleList 
             vehicles={vehicles} 
