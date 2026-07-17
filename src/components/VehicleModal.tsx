@@ -1,6 +1,7 @@
 import { X, Trash2, AlertTriangle, UploadCloud, FileText, Download } from 'lucide-react';
-import { db } from '../lib/firebase';
+import { db, storage } from '../lib/firebase';
 import { collection, addDoc, serverTimestamp, deleteDoc, doc as firestoreDoc, updateDoc } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { Vehicle, VehicleDocument } from '../types';
 import { getAlertStatus, getMissingFields, getVehicleAlerts } from '../utils';
 
@@ -167,13 +168,22 @@ export const VehicleModal = ({
                   if (e.target.files && e.target.files.length > 0) {
                      const files = Array.from(e.target.files);
                      for (const file of files) {
-                       await addDoc(collection(db, 'documents'), {
-                         vehicleId: selectedVehicle.id,
-                         name: file.name,
-                         type: file.type || 'application/octet-stream',
-                         url: URL.createObjectURL(file),
-                         uploadedAt: serverTimestamp()
-                       });
+                       try {
+                         const storageRef = ref(storage, `vehicles/${selectedVehicle.id}/${Date.now()}_${file.name}`);
+                         const snapshot = await uploadBytes(storageRef, file);
+                         const downloadURL = await getDownloadURL(snapshot.ref);
+                         
+                         await addDoc(collection(db, 'documents'), {
+                           vehicleId: selectedVehicle.id,
+                           name: file.name,
+                           type: file.type || 'application/octet-stream',
+                           url: downloadURL,
+                           uploadedAt: serverTimestamp()
+                         });
+                       } catch (error) {
+                         console.error("Error al subir archivo:", error);
+                         alert("Error al subir el archivo: " + file.name);
+                       }
                      }
                   }
                 }} />
