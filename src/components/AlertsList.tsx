@@ -12,8 +12,8 @@ export const AlertsList = ({ alerts, setSelectedVehicle, setIsEditing }: AlertsL
     <div className="flex-1 bg-white rounded-3xl border border-slate-200 overflow-hidden flex flex-col">
       <div className="p-6 border-b border-slate-100 flex justify-between items-center">
         <div>
-          <h4 className="font-bold text-slate-800">Centro de Alertas</h4>
-          <p className="text-sm text-slate-500">Gestiona los trámites vencidos o próximos a vencer de toda la flota.</p>
+          <h4 className="font-bold text-slate-800">Estado de la Flota</h4>
+          <p className="text-sm text-slate-500">Control total de trámites, mantenimientos y vencimientos.</p>
         </div>
       </div>
       <div className="flex-1 overflow-y-auto p-2">
@@ -34,35 +34,48 @@ export const AlertsList = ({ alerts, setSelectedVehicle, setIsEditing }: AlertsL
               </tr>
             </thead>
             <tbody className="text-sm">
-              {alerts.map((al, idx) => (
-                <tr key={idx} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
-                  <td className="px-4 py-4">
-                    <div className="font-bold">{al.vehicle.matricula}</div>
-                    <div className="text-xs text-slate-500">{al.vehicle.marca}</div>
-                  </td>
-                  <td className="px-4 py-4 font-medium text-slate-700">{al.type}</td>
-                  <td className="px-4 py-4">{al.date}</td>
-                  <td className="px-4 py-4">
-                    <span className={`text-[10px] px-2 py-1 rounded font-bold ${
-                      al.status.status === 'danger' ? 'bg-red-100 text-red-600' :
-                      'bg-amber-100 text-amber-600'
-                    }`}>
-                      {al.status.text}
-                    </span>
-                  </td>
-                  <td className="px-4 py-4">
-                    <button 
-                      onClick={() => {
-                        setSelectedVehicle(al.vehicle);
-                        setIsEditing(true);
-                      }}
-                      className="text-xs font-bold text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg hover:bg-blue-100 transition-colors"
-                    >
-                      Renovar / Editar
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {alerts.map((al, idx) => {
+                const isVencido = al.status.status === 'danger';
+                const isWarning = al.status.status === 'warning';
+                
+                return (
+                  <tr 
+                    key={idx} 
+                    className={`border-b border-white transition-colors ${
+                      isVencido ? 'bg-red-100' : 
+                      isWarning ? 'bg-amber-100' : 
+                      'bg-white'
+                    }`}
+                  >
+                    <td className="px-4 py-4">
+                      <div className="font-bold text-slate-900">{al.vehicle.matricula}</div>
+                      <div className="text-[10px] text-slate-500 font-medium uppercase">{al.vehicle.marca} {al.vehicle.tipo}</div>
+                    </td>
+                    <td className="px-4 py-4 font-bold text-slate-700">{al.type}</td>
+                    <td className="px-4 py-4 font-medium">{al.date}</td>
+                    <td className="px-4 py-4">
+                      <span className={`text-[10px] px-3 py-1 rounded-full font-black uppercase tracking-wider ${
+                        isVencido ? 'bg-red-600 text-white shadow-sm' :
+                        isWarning ? 'bg-amber-500 text-white shadow-sm' :
+                        'bg-emerald-500 text-white shadow-sm'
+                      }`}>
+                        {al.status.text}
+                      </span>
+                    </td>
+                    <td className="px-4 py-4">
+                      <button 
+                        onClick={() => {
+                          setSelectedVehicle(al.vehicle);
+                          setIsEditing(true);
+                        }}
+                        className="text-[11px] font-bold px-4 py-2 rounded-full transition-all shadow-sm bg-white text-blue-600 hover:bg-slate-50 border border-slate-100"
+                      >
+                        Renovar / Editar
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}

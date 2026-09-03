@@ -21,12 +21,18 @@ export const parseEsDate = (dateStr: any) => {
   return null;
 };
 
-export const getAlertStatus = (dateStr: string): AlertStatus => {
+export const getAlertStatus = (dateStr: string, priority: 'low' | 'medium' | 'high' = 'medium'): AlertStatus => {
   const d = parseEsDate(dateStr);
   if (!d) return { status: 'unknown', text: 'Desconocido' };
   const now = new Date();
   if (isBefore(d, now)) return { status: 'danger', text: 'VENCIDO' };
-  if (isBefore(d, addDays(now, 30))) return { status: 'warning', text: 'Vence < 30 días' };
+  
+  // Custom threshold based on priority
+  let daysWarning = 30;
+  if (priority === 'high') daysWarning = 60;
+  if (priority === 'low') daysWarning = 15;
+
+  if (isBefore(d, addDays(now, daysWarning))) return { status: 'warning', text: `Vence < ${daysWarning} días` };
   return { status: 'success', text: 'En Regla' };
 };
 
@@ -51,10 +57,8 @@ export const getVehicleAlerts = (v: Vehicle) => {
 
   fields.forEach(f => {
     if (f.value) {
-      const st = getAlertStatus(f.value);
-      if (st.status === 'warning' || st.status === 'danger') {
-        alerts.push({ label: f.label, ...st, date: f.value });
-      }
+      const st = getAlertStatus(f.value, v.priority || 'medium');
+      alerts.push({ label: f.label, ...st, date: f.value });
     }
   });
 
@@ -70,6 +74,12 @@ export const getAllAlerts = (vehicles: Vehicle[]) => {
     });
   });
   return alerts.sort((a, b) => {
+    const priority = { danger: 0, warning: 1, success: 2, unknown: 3 };
+    const pA = priority[a.status.status as keyof typeof priority] ?? 4;
+    const pB = priority[b.status.status as keyof typeof priority] ?? 4;
+    
+    if (pA !== pB) return pA - pB;
+
     const da = parseEsDate(a.date);
     const db = parseEsDate(b.date);
     if (!da) return 1; if (!db) return -1;
@@ -85,7 +95,7 @@ export const calculateStats = (vehicles: Vehicle[]) => {
     let hasCritical = false;
     let hasWarning = false;
     const check = (d: string) => {
-       const st = getAlertStatus(d);
+       const st = getAlertStatus(d, v.priority || 'medium');
        if (st.status === 'danger') hasCritical = true;
        if (st.status === 'warning') hasWarning = true;
     };

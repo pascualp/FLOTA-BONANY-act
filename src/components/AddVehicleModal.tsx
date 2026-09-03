@@ -26,6 +26,7 @@ export const AddVehicleModal = ({ setShowAddModal }: AddVehicleModalProps) => {
             vencimientoATP: formData.get('atp') || '',
             revisionTacografo: formData.get('tacografo') || '',
             chofer: formData.get('chofer') || '',
+            priority: formData.get('priority') || 'medium',
             createdAt: serverTimestamp()
           });
           setShowAddModal(false);
@@ -36,19 +37,27 @@ export const AddVehicleModal = ({ setShowAddModal }: AddVehicleModalProps) => {
               <input name="matricula" required className="w-full border border-slate-200 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
             </div>
             <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Marca / Modelo</label>
-              <input name="marca" required className="w-full border border-slate-200 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Prioridad de Alertas</label>
+              <select name="priority" defaultValue="medium" className="w-full border border-slate-200 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white">
+                <option value="low">Baja (15 días)</option>
+                <option value="medium">Media (30 días)</option>
+                <option value="high">Alta (60 días)</option>
+              </select>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Marca / Modelo</label>
+              <input name="marca" required className="w-full border border-slate-200 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+            </div>
+            <div>
               <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Tipo de Vehículo</label>
               <input name="tipo" placeholder="Trailer, Rígido..." className="w-full border border-slate-200 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
             </div>
-            <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nº Bastidor</label>
-              <input name="bastidor" className="w-full border border-slate-200 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
-            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nº Bastidor</label>
+            <input name="bastidor" className="w-full border border-slate-200 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
           </div>
           <div className="p-4 bg-slate-50 rounded-2xl space-y-4 border border-slate-100">
             <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Vencimientos Iniciales</h4>

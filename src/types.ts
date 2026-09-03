@@ -16,6 +16,7 @@ export interface Vehicle {
   proximaITV: string;
   vencimientoATP: string;
   revisionTacografo: string;
+  priority?: 'low' | 'medium' | 'high';
   createdAt?: Timestamp;
 }
 
@@ -25,6 +26,8 @@ export interface VehicleDocument {
   name: string;
   type: string;
   url: string;
+  isChunked?: boolean;
+  totalChunks?: number;
   uploadedAt: Timestamp;
 }
 

@@ -12,7 +12,6 @@ import { Vehicle, VehicleDocument } from './types';
 import { getAllAlerts, calculateStats } from './utils';
 
 // Components
-import { VehicleList } from './components/VehicleList';
 import { AlertsList } from './components/AlertsList';
 import { VehicleModal } from './components/VehicleModal';
 import { AddVehicleModal } from './components/AddVehicleModal';
@@ -20,7 +19,7 @@ import { AddVehicleModal } from './components/AddVehicleModal';
 export default function App() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('vehicles');
+  const [activeTab, setActiveTab] = useState('alerts');
   const [showAddModal, setShowAddModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null);
@@ -96,13 +95,6 @@ export default function App() {
         <nav className="flex-1">
           <ul className="space-y-2 text-sm font-medium">
             <li 
-              onClick={() => setActiveTab('vehicles')} 
-              className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all duration-200 ${activeTab === 'vehicles' ? 'text-blue-600 bg-blue-50 shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}
-            >
-              <Car className="w-5 h-5" />
-              Gestión de Vehículos
-            </li>
-            <li 
               onClick={() => setActiveTab('alerts')} 
               className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all duration-200 ${activeTab === 'alerts' ? 'text-blue-600 bg-blue-50 shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}
             >
@@ -129,7 +121,7 @@ export default function App() {
         <div className="flex justify-between items-center shrink-0">
           <div>
             <h2 className="text-2xl font-bold text-slate-800">
-              {activeTab === 'alerts' ? 'Alertas de Vencimiento' : 'Directorio de Vehículos'}
+              Estado de la Flota
             </h2>
             <p className="text-slate-500 text-sm">Resumen en tiempo real y trámites pendientes.</p>
           </div>
@@ -143,15 +135,6 @@ export default function App() {
         </div>
 
         {/* Dynamic Content */}
-        {activeTab === 'vehicles' && (
-          <VehicleList 
-            vehicles={vehicles} 
-            allAlerts={alerts} 
-            searchQuery={searchQuery} 
-            setSearchQuery={setSearchQuery} 
-            setSelectedVehicle={setSelectedVehicle} 
-          />
-        )}
         {activeTab === 'alerts' && (
           <AlertsList 
             alerts={alerts} 

@@ -5,7 +5,7 @@ service cloud.firestore {
     match /vehicles/{document} {
       allow read, write: if true;
     }
-    match /documents/{document} {
+    match /documents/{document=**} {
       allow read, write: if true;
     }
   }

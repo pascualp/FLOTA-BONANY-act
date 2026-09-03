@@ -1,6 +1,7 @@
-import { X, Trash2, AlertTriangle, UploadCloud, FileText, Download } from 'lucide-react';
+import React, { useState } from 'react';
+import { X, Trash2, AlertTriangle, UploadCloud, FileText, Download, Loader2 } from 'lucide-react';
 import { db } from '../lib/firebase';
-import { collection, addDoc, serverTimestamp, deleteDoc, doc as firestoreDoc, updateDoc } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, deleteDoc, doc as firestoreDoc, updateDoc, getDocs, query, orderBy } from 'firebase/firestore';
 import { Vehicle, VehicleDocument } from '../types';
 import { getAlertStatus, getMissingFields, getVehicleAlerts } from '../utils';
 
@@ -19,6 +20,45 @@ export const VehicleModal = ({
   setIsEditing, 
   vehicleDocuments 
 }: VehicleModalProps) => {
+  const [downloadingDocId, setDownloadingDocId] = useState<string | null>(null);
+  const [uploading, setUploading] = useState<boolean>(false);
+
+  const handleDownload = async (doc: VehicleDocument) => {
+    if (!doc.isChunked) {
+      const link = document.createElement('a');
+      link.href = doc.url;
+      link.download = doc.name;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      return;
+    }
+
+    try {
+      setDownloadingDocId(doc.id);
+      const chunksRef = collection(db, `documents/${doc.id}/chunks`);
+      const q = query(chunksRef, orderBy('index'));
+      const querySnapshot = await getDocs(q);
+      
+      let fullBase64 = '';
+      querySnapshot.forEach((chunkDoc) => {
+        fullBase64 += chunkDoc.data().data;
+      });
+
+      const link = document.createElement('a');
+      link.href = fullBase64;
+      link.download = doc.name;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (error) {
+      console.error("Error al descargar archivo:", error);
+      alert("No se pudo descargar el archivo.");
+    } finally {
+      setDownloadingDocId(null);
+    }
+  };
+
   return (
     <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-3xl p-6 w-full max-w-2xl shadow-2xl overflow-y-auto max-h-[90vh]">
@@ -79,6 +119,7 @@ export const VehicleModal = ({
               revisionTacografo: formData.get('revisionTacografo') as string,
               aseguradora: formData.get('aseguradora') as string,
               poliza: formData.get('poliza') as string,
+              priority: formData.get('priority') as 'low' | 'medium' | 'high',
             };
             if (selectedVehicle.id) {
               await updateDoc(firestoreDoc(db, 'vehicles', selectedVehicle.id), updates);
@@ -95,6 +136,14 @@ export const VehicleModal = ({
                 <div><label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nº Bastidor</label><input name="bastidor" defaultValue={selectedVehicle.bastidor} className="w-full border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none text-sm" /></div>
                 <div><label className="block text-xs font-bold text-slate-500 uppercase mb-1">F. Matriculación</label><input name="fechaMatriculacion" defaultValue={selectedVehicle.fechaMatriculacion} className="w-full border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none text-sm" /></div>
                 <div><label className="block text-xs font-bold text-slate-500 uppercase mb-1">Chofer</label><input name="chofer" defaultValue={selectedVehicle.chofer} className="w-full border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none text-sm" /></div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Prioridad de Alertas</label>
+                  <select name="priority" defaultValue={selectedVehicle.priority || 'medium'} className="w-full border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none bg-white text-sm">
+                    <option value="low">Baja (15 días)</option>
+                    <option value="medium">Media (30 días)</option>
+                    <option value="high">Alta (60 días)</option>
+                  </select>
+                </div>
               </div>
               <div className="space-y-4">
                 <h4 className="font-bold text-slate-800 border-b border-slate-100 pb-2">Legal y Vencimientos</h4>
@@ -121,6 +170,7 @@ export const VehicleModal = ({
                 <div><p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Nº Bastidor</p><p className="font-medium text-sm text-slate-600 break-all">{selectedVehicle.bastidor || 'N/A'}</p></div>
                 <div><p className="text-xs font-bold text-slate-400 uppercase tracking-wider">F. Matriculación</p><p className="font-medium text-sm">{selectedVehicle.fechaMatriculacion || 'N/A'}</p></div>
                 <div><p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Chofer</p><p className="font-medium text-sm">{selectedVehicle.chofer || 'N/A'}</p></div>
+                <div><p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Prioridad</p><p className="font-bold text-sm text-blue-600 uppercase">{selectedVehicle.priority || 'medium'}</p></div>
               </div>
             </div>
             <div className="space-y-4">
@@ -131,7 +181,7 @@ export const VehicleModal = ({
                   { label: 'Vencimiento ATP', value: selectedVehicle.vencimientoATP },
                   { label: 'Revisión Tacógrafo', value: selectedVehicle.revisionTacografo }
                 ].map((row, i) => {
-                  const st = row.value ? getAlertStatus(row.value) : null;
+                  const st = row.value ? getAlertStatus(row.value, selectedVehicle.priority || 'medium') : null;
                   return (
                     <div key={i} className="flex justify-between items-center bg-slate-50 p-3 rounded-xl border border-slate-100">
                       <div>
@@ -160,41 +210,51 @@ export const VehicleModal = ({
         <div className="mt-8 border-t border-slate-100 pt-6">
           <div className="flex justify-between items-center mb-4">
              <h4 className="font-bold text-slate-800">Documentación Adjunta</h4>
-             <label className="bg-blue-50 text-blue-600 px-4 py-2 rounded-lg font-bold text-xs cursor-pointer hover:bg-blue-100 transition-colors flex items-center gap-2">
-                <UploadCloud className="w-4 h-4" />
-                Subir Archivo
-                <input type="file" multiple className="hidden" onChange={async (e) => {
+             <label className={`bg-blue-50 text-blue-600 px-4 py-2 rounded-lg font-bold text-xs cursor-pointer transition-colors flex items-center gap-2 ${uploading ? 'opacity-50 pointer-events-none' : 'hover:bg-blue-100'}`}>
+                {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <UploadCloud className="w-4 h-4" />}
+                {uploading ? 'Subiendo...' : 'Subir Archivo'}
+                <input type="file" multiple className="hidden" disabled={uploading} onChange={async (e) => {
                   if (e.target.files && e.target.files.length > 0) {
+                     setUploading(true);
                      const files = Array.from(e.target.files);
                      for (const file of files) {
                        try {
-                         const maxSize = 700 * 1024; // 700KB límite para Firestore
-                         if (file.size > maxSize) {
-                           alert(`El archivo ${file.name} supera el límite de 700KB. Por favor, comprímelo o usa un formato más ligero antes de subirlo.`);
-                           continue;
-                         }
                          const reader = new FileReader();
-                         reader.onload = async (event) => {
-                           try {
-                             const base64Url = event.target?.result as string;
-                             await addDoc(collection(db, 'documents'), {
-                               vehicleId: selectedVehicle.id,
-                               name: file.name,
-                               type: file.type || 'application/octet-stream',
-                               url: base64Url,
-                               uploadedAt: serverTimestamp()
+                         const fileData = await new Promise<string>((resolve, reject) => {
+                           reader.onload = (e) => resolve(e.target?.result as string);
+                           reader.onerror = reject;
+                           reader.readAsDataURL(file);
+                         });
+
+                         const MAX_CHUNK_SIZE = 700 * 1024;
+                         const totalChunks = Math.ceil(fileData.length / MAX_CHUNK_SIZE);
+                         const isChunked = totalChunks > 1;
+
+                         const docRef = await addDoc(collection(db, 'documents'), {
+                           vehicleId: selectedVehicle.id,
+                           name: file.name,
+                           type: file.type || 'application/octet-stream',
+                           url: isChunked ? '' : fileData,
+                           isChunked,
+                           totalChunks,
+                           uploadedAt: serverTimestamp()
+                         });
+
+                         if (isChunked) {
+                           for (let i = 0; i < totalChunks; i++) {
+                             const chunk = fileData.slice(i * MAX_CHUNK_SIZE, (i + 1) * MAX_CHUNK_SIZE);
+                             await addDoc(collection(db, `documents/${docRef.id}/chunks`), {
+                               index: i,
+                               data: chunk
                              });
-                           } catch (err) {
-                             console.error("Error guardando documento:", err);
-                             alert("Error al guardar el archivo en la base de datos.");
                            }
-                         };
-                         reader.readAsDataURL(file);
+                         }
                        } catch (error) {
-                         console.error("Error al procesar archivo:", error);
-                         alert("Error al procesar el archivo: " + file.name);
+                         console.error("Error al subir archivo:", error);
+                         alert("Error al subir el archivo: " + file.name);
                        }
                      }
+                     setUploading(false);
                   }
                 }} />
              </label>
@@ -217,12 +277,23 @@ export const VehicleModal = ({
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
-                      <a href={doc.url} download={doc.name} target="_blank" rel="noreferrer" className="p-2 hover:bg-slate-200 rounded-lg text-slate-500 transition-colors">
-                        <Download className="w-4 h-4" />
-                      </a>
+                      <button 
+                        onClick={() => handleDownload(doc)}
+                        disabled={downloadingDocId === doc.id}
+                        className="p-2 hover:bg-slate-200 rounded-lg text-slate-500 transition-colors disabled:opacity-50"
+                      >
+                        {downloadingDocId === doc.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                      </button>
                       <button 
                         onClick={async () => {
                           if (window.confirm('¿Eliminar este documento?')) {
+                            if (doc.isChunked) {
+                              const chunksRef = collection(db, `documents/${doc.id}/chunks`);
+                              const snapshot = await getDocs(chunksRef);
+                              for (const chunkDoc of snapshot.docs) {
+                                await deleteDoc(chunkDoc.ref);
+                              }
+                            }
                             await deleteDoc(firestoreDoc(db, 'documents', doc.id));
                           }
                         }}
