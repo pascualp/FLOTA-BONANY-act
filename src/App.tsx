@@ -3,13 +3,16 @@ import {
   Car,
   AlertCircle,
   Plus,
-  CheckCircle2
+  CheckCircle2,
+  Mail,
+  Bell
 } from 'lucide-react';
 import { db } from './lib/firebase';
 import { collection, addDoc, onSnapshot, query, serverTimestamp, where } from 'firebase/firestore';
 import { seedData } from './lib/seedData';
 import { Vehicle, VehicleDocument } from './types';
 import { getAllAlerts, calculateStats } from './utils';
+import { EmailService } from './lib/email';
 
 // Components
 import { AlertsList } from './components/AlertsList';
@@ -25,6 +28,73 @@ export default function App() {
   const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [vehicleDocuments, setVehicleDocuments] = useState<VehicleDocument[]>([]);
+  const [isSendingEmail, setIsSendingEmail] = useState(false);
+
+  useEffect(() => {
+    EmailService.init();
+  }, []);
+
+  const sendEmailReport = async () => {
+    if (alerts.length === 0) {
+      alert('No hay alertas pendientes para enviar.');
+      return;
+    }
+
+    setIsSendingEmail(true);
+    try {
+      const dangerAlerts = alerts.filter(a => a.status.status === 'danger');
+      const warningAlerts = alerts.filter(a => a.status.status === 'warning');
+
+      const html = `
+        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px;">
+          <h2 style="color: #1e293b; margin-top: 0;">Resumen de Alertas - Flotas Bonany</h2>
+          <p style="color: #64748b;">Se han detectado los siguientes trámites pendientes en la flota:</p>
+          
+          ${dangerAlerts.length > 0 ? `
+            <h3 style="color: #dc2626; margin-bottom: 10px;">⚠️ VENCIDOS (${dangerAlerts.length})</h3>
+            <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+              ${dangerAlerts.map(a => `
+                <tr style="border-bottom: 1px solid #fee2e2; background-color: #fef2f2;">
+                  <td style="padding: 12px; font-weight: bold; color: #1e293b; border-bottom: 1px solid #fee2e2;">${a.vehicle.matricula}</td>
+                  <td style="padding: 12px; color: #1e293b; border-bottom: 1px solid #fee2e2;">${a.type}</td>
+                  <td style="padding: 12px; color: #dc2626; font-weight: bold; text-align: right; border-bottom: 1px solid #fee2e2;">${a.date}</td>
+                </tr>
+              `).join('')}
+            </table>
+          ` : ''}
+
+          ${warningAlerts.length > 0 ? `
+            <h3 style="color: #d97706; margin-bottom: 10px;">🔔 PRÓXIMOS A VENCER (${warningAlerts.length})</h3>
+            <table style="width: 100%; border-collapse: collapse;">
+              ${warningAlerts.map(a => `
+                <tr style="border-bottom: 1px solid #fef3c7; background-color: #fffbeb;">
+                  <td style="padding: 12px; font-weight: bold; color: #1e293b; border-bottom: 1px solid #fef3c7;">${a.vehicle.matricula}</td>
+                  <td style="padding: 12px; color: #1e293b; border-bottom: 1px solid #fef3c7;">${a.type}</td>
+                  <td style="padding: 12px; color: #d97706; font-weight: bold; text-align: right; border-bottom: 1px solid #fef3c7;">${a.date}</td>
+                </tr>
+              `).join('')}
+            </table>
+          ` : ''}
+
+          <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #94a3b8; text-align: center;">
+            Este es un correo automático generado por el Sistema de Gestión de Flotas Bonany.
+          </div>
+        </div>
+      `;
+
+      await EmailService.sendEmail({
+        to: 'porteousfacundo@gmail.com',
+        subject: `⚠️ Alerta de Vencimientos: ${dangerAlerts.length} vencidos / ${warningAlerts.length} próximos`,
+        html
+      });
+      alert('Reporte enviado correctamente a porteousfacundo@gmail.com');
+    } catch (error: any) {
+      console.error(error);
+      alert('Error al enviar el correo: ' + (error.error || error.message || 'Error desconocido'));
+    } finally {
+      setIsSendingEmail(false);
+    }
+  };
 
   useEffect(() => {
     const q = query(collection(db, 'vehicles'));
@@ -94,18 +164,25 @@ export default function App() {
         
         <nav className="flex-1">
           <ul className="space-y-2 text-sm font-medium">
-            <li 
-              onClick={() => setActiveTab('alerts')} 
-              className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all duration-200 ${activeTab === 'alerts' ? 'text-blue-600 bg-blue-50 shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}
-            >
-              <AlertCircle className="w-5 h-5" />
-              Alertas de Vencimiento
-              {alerts.length > 0 && (
-                <span className="ml-auto bg-red-100 text-red-600 px-2 py-0.5 rounded-full text-[10px] font-bold">
-                  {alerts.length}
-                </span>
-              )}
-            </li>
+              <li 
+                onClick={() => setActiveTab('alerts')} 
+                className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all duration-200 ${activeTab === 'alerts' ? 'text-blue-600 bg-blue-50 shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}
+              >
+                <AlertCircle className="w-5 h-5" />
+                Alertas de Vencimiento
+                {alerts.length > 0 && (
+                  <span className="ml-auto bg-red-100 text-red-600 px-2 py-0.5 rounded-full text-[10px] font-bold">
+                    {alerts.length}
+                  </span>
+                )}
+              </li>
+              <li 
+                onClick={sendEmailReport}
+                className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all duration-200 text-slate-500 hover:bg-blue-50 hover:text-blue-600 group ${isSendingEmail ? 'opacity-50 pointer-events-none' : ''}`}
+              >
+                <Mail className="w-5 h-5 group-hover:scale-110 transition-transform" />
+                {isSendingEmail ? 'Enviando...' : 'Enviar Reporte Email'}
+              </li>
           </ul>
         </nav>
 

@@ -26,6 +26,7 @@ export interface VehicleDocument {
   name: string;
   type: string;
   url: string;
+  size?: number;
   isChunked?: boolean;
   totalChunks?: number;
   uploadedAt: Timestamp;

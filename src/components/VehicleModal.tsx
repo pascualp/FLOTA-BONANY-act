@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import { X, Trash2, AlertTriangle, UploadCloud, FileText, Download, Loader2 } from 'lucide-react';
+import { X, Trash2, UploadCloud, FileText, Download, Loader2 } from 'lucide-react';
 import { db } from '../lib/firebase';
-import { collection, addDoc, serverTimestamp, deleteDoc, doc as firestoreDoc, updateDoc, getDocs, query, orderBy } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, deleteDoc, doc as firestoreDoc, updateDoc, getDocs, writeBatch } from 'firebase/firestore';
 import { Vehicle, VehicleDocument } from '../types';
-import { getAlertStatus, getMissingFields, getVehicleAlerts } from '../utils';
+import { getAlertStatus } from '../utils';
 
 interface VehicleModalProps {
   selectedVehicle: Vehicle;
@@ -12,6 +12,13 @@ interface VehicleModalProps {
   setIsEditing: (isEditing: boolean) => void;
   vehicleDocuments: VehicleDocument[];
 }
+
+const formatFileSize = (bytes?: number) => {
+  if (!bytes) return '';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+};
 
 export const VehicleModal = ({ 
   selectedVehicle, 
@@ -22,12 +29,14 @@ export const VehicleModal = ({
 }: VehicleModalProps) => {
   const [downloadingDocId, setDownloadingDocId] = useState<string | null>(null);
   const [uploading, setUploading] = useState<boolean>(false);
+  const [uploadStatus, setUploadStatus] = useState<string | null>(null);
 
-  const handleDownload = async (doc: VehicleDocument) => {
-    if (!doc.isChunked) {
+  const handleDownload = async (docItem: VehicleDocument) => {
+    // Backward compatibility for previously uploaded non-chunked docs with url
+    if (!docItem.isChunked && docItem.url) {
       const link = document.createElement('a');
-      link.href = doc.url;
-      link.download = doc.name;
+      link.href = docItem.url;
+      link.download = docItem.name;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -35,19 +44,37 @@ export const VehicleModal = ({
     }
 
     try {
-      setDownloadingDocId(doc.id);
-      const chunksRef = collection(db, `documents/${doc.id}/chunks`);
-      const q = query(chunksRef, orderBy('index'));
-      const querySnapshot = await getDocs(q);
+      setDownloadingDocId(docItem.id);
+      const chunksRef = collection(db, `documents/${docItem.id}/chunks`);
+      const querySnapshot = await getDocs(chunksRef);
       
-      let fullBase64 = '';
+      if (querySnapshot.empty) {
+        if (docItem.url) {
+          const link = document.createElement('a');
+          link.href = docItem.url;
+          link.download = docItem.name;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          return;
+        }
+        throw new Error("No se encontraron partes del documento.");
+      }
+
+      const chunks: { index: number; data: string }[] = [];
       querySnapshot.forEach((chunkDoc) => {
-        fullBase64 += chunkDoc.data().data;
+        chunks.push(chunkDoc.data() as { index: number; data: string });
       });
+      chunks.sort((a, b) => a.index - b.index);
+
+      let fullBase64 = '';
+      for (let i = 0; i < chunks.length; i++) {
+        fullBase64 += chunks[i].data;
+      }
 
       const link = document.createElement('a');
       link.href = fullBase64;
-      link.download = doc.name;
+      link.download = docItem.name;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -209,56 +236,116 @@ export const VehicleModal = ({
 
         <div className="mt-8 border-t border-slate-100 pt-6">
           <div className="flex justify-between items-center mb-4">
-             <h4 className="font-bold text-slate-800">Documentación Adjunta</h4>
-             <label className={`bg-blue-50 text-blue-600 px-4 py-2 rounded-lg font-bold text-xs cursor-pointer transition-colors flex items-center gap-2 ${uploading ? 'opacity-50 pointer-events-none' : 'hover:bg-blue-100'}`}>
+             <div>
+               <h4 className="font-bold text-slate-800">Documentación Adjunta</h4>
+               <p className="text-xs text-slate-400">PDFs, ITV, ficha técnica y pólizas del vehículo</p>
+             </div>
+             <label className={`bg-blue-600 text-white px-4 py-2 rounded-xl font-bold text-xs cursor-pointer transition-all shadow-md shadow-blue-200 flex items-center gap-2 ${uploading ? 'opacity-60 pointer-events-none' : 'hover:bg-blue-700 active:scale-95'}`}>
                 {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <UploadCloud className="w-4 h-4" />}
                 {uploading ? 'Subiendo...' : 'Subir Archivo'}
-                <input type="file" multiple className="hidden" disabled={uploading} onChange={async (e) => {
-                  if (e.target.files && e.target.files.length > 0) {
-                     setUploading(true);
-                     const files = Array.from(e.target.files);
-                     for (const file of files) {
-                       try {
-                         const reader = new FileReader();
-                         const fileData = await new Promise<string>((resolve, reject) => {
-                           reader.onload = (e) => resolve(e.target?.result as string);
-                           reader.onerror = reject;
-                           reader.readAsDataURL(file);
-                         });
+                <input 
+                  type="file" 
+                  multiple 
+                  accept=".pdf,image/*,application/pdf"
+                  className="hidden" 
+                  disabled={uploading} 
+                  onChange={async (e) => {
+                    if (!selectedVehicle?.id) return;
+                    if (e.target.files && e.target.files.length > 0) {
+                       setUploading(true);
+                       const files = Array.from(e.target.files);
 
-                         const MAX_CHUNK_SIZE = 700 * 1024;
-                         const totalChunks = Math.ceil(fileData.length / MAX_CHUNK_SIZE);
-                         const isChunked = totalChunks > 1;
-
-                         const docRef = await addDoc(collection(db, 'documents'), {
-                           vehicleId: selectedVehicle.id,
-                           name: file.name,
-                           type: file.type || 'application/octet-stream',
-                           url: isChunked ? '' : fileData,
-                           isChunked,
-                           totalChunks,
-                           uploadedAt: serverTimestamp()
-                         });
-
-                         if (isChunked) {
-                           for (let i = 0; i < totalChunks; i++) {
-                             const chunk = fileData.slice(i * MAX_CHUNK_SIZE, (i + 1) * MAX_CHUNK_SIZE);
-                             await addDoc(collection(db, `documents/${docRef.id}/chunks`), {
-                               index: i,
-                               data: chunk
-                             });
-                           }
+                       for (let fileIdx = 0; fileIdx < files.length; fileIdx++) {
+                         const file = files[fileIdx];
+                         
+                         // Limit to 25MB for safety
+                         if (file.size > 25 * 1024 * 1024) {
+                           alert(`El archivo "${file.name}" supera los 25 MB. Por favor sube una versión más reducida.`);
+                           continue;
                          }
-                       } catch (error) {
-                         console.error("Error al subir archivo:", error);
-                         alert("Error al subir el archivo: " + file.name);
+
+                         setUploadStatus(
+                           files.length > 1
+                             ? `Leyendo (${fileIdx + 1}/${files.length}): ${file.name}...`
+                             : `Procesando: ${file.name} (${formatFileSize(file.size)})...`
+                         );
+
+                         try {
+                           const reader = new FileReader();
+                           const fileData = await new Promise<string>((resolve, reject) => {
+                             reader.onload = (ev) => resolve(ev.target?.result as string);
+                             reader.onerror = reject;
+                             reader.readAsDataURL(file);
+                           });
+
+                           // 600KB base64 chunk size (~450KB binary)
+                           const CHUNK_SIZE = 600 * 1024;
+                           const totalChunks = Math.ceil(fileData.length / CHUNK_SIZE);
+
+                           setUploadStatus(
+                             files.length > 1
+                               ? `Guardando (${fileIdx + 1}/${files.length}): ${file.name}...`
+                               : `Subiendo a la nube: ${file.name} (${formatFileSize(file.size)})...`
+                           );
+
+                           // Save lightweight metadata in parent collection
+                           const docRef = await addDoc(collection(db, 'documents'), {
+                             vehicleId: selectedVehicle.id,
+                             name: file.name,
+                             type: file.type || 'application/pdf',
+                             size: file.size,
+                             url: '',
+                             isChunked: true,
+                             totalChunks,
+                             uploadedAt: serverTimestamp()
+                           });
+
+                           // Parallel batch commits: 4 chunks per batch (~2.4MB per batch)
+                           const BATCH_SIZE = 4;
+                           const batchPromises: Promise<void>[] = [];
+
+                           for (let b = 0; b < totalChunks; b += BATCH_SIZE) {
+                             const batch = writeBatch(db);
+                             const end = Math.min(b + BATCH_SIZE, totalChunks);
+                             for (let i = b; i < end; i++) {
+                               const chunk = fileData.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+                               const chunkDocRef = firestoreDoc(collection(db, `documents/${docRef.id}/chunks`));
+                               batch.set(chunkDocRef, {
+                                 index: i,
+                                 data: chunk
+                               });
+                             }
+                             batchPromises.push(batch.commit());
+                           }
+
+                           // Execute all batches concurrently in parallel
+                           await Promise.all(batchPromises);
+
+                         } catch (error) {
+                           console.error("Error al subir archivo:", error);
+                           alert("Error al subir el archivo: " + file.name);
+                         }
                        }
-                     }
-                     setUploading(false);
-                  }
-                }} />
+
+                       setUploading(false);
+                       setUploadStatus(null);
+                       e.target.value = '';
+                    }
+                  }} 
+                />
              </label>
           </div>
+
+          {uploadStatus && (
+            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-2xl flex items-center justify-between text-xs text-blue-800 font-semibold animate-pulse">
+              <div className="flex items-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
+                <span>{uploadStatus}</span>
+              </div>
+              <span className="text-[10px] font-bold text-blue-500 uppercase tracking-wider">Optimizando subida</span>
+            </div>
+          )}
+
           <div className="space-y-2">
             {vehicleDocuments.length === 0 ? (
                <div className="bg-slate-50 border border-slate-100 border-dashed rounded-xl p-6 text-center">
@@ -271,8 +358,9 @@ export const VehicleModal = ({
                       <div className="p-2 bg-blue-50 text-blue-600 rounded-lg"><FileText className="w-5 h-5" /></div>
                       <div>
                         <p className="text-sm font-bold text-slate-700">{doc.name}</p>
-                        <p className="text-[10px] text-slate-400 font-medium uppercase tracking-wider">
-                          {doc.uploadedAt ? new Date(doc.uploadedAt.toDate()).toLocaleDateString() : 'Subiendo...'}
+                        <p className="text-[10px] text-slate-400 font-medium uppercase tracking-wider flex items-center gap-2">
+                          <span>{doc.uploadedAt ? new Date(doc.uploadedAt.toDate()).toLocaleDateString() : 'Subiendo...'}</span>
+                          {doc.size ? <span>• {formatFileSize(doc.size)}</span> : null}
                         </p>
                       </div>
                     </div>
@@ -280,23 +368,34 @@ export const VehicleModal = ({
                       <button 
                         onClick={() => handleDownload(doc)}
                         disabled={downloadingDocId === doc.id}
-                        className="p-2 hover:bg-slate-200 rounded-lg text-slate-500 transition-colors disabled:opacity-50"
+                        title="Descargar documento"
+                        className="p-2 hover:bg-blue-50 hover:text-blue-600 rounded-lg text-slate-500 transition-colors disabled:opacity-50"
                       >
-                        {downloadingDocId === doc.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                        {downloadingDocId === doc.id ? <Loader2 className="w-4 h-4 animate-spin text-blue-600" /> : <Download className="w-4 h-4" />}
                       </button>
                       <button 
                         onClick={async () => {
-                          if (window.confirm('¿Eliminar este documento?')) {
-                            if (doc.isChunked) {
-                              const chunksRef = collection(db, `documents/${doc.id}/chunks`);
-                              const snapshot = await getDocs(chunksRef);
-                              for (const chunkDoc of snapshot.docs) {
-                                await deleteDoc(chunkDoc.ref);
+                          if (window.confirm(`¿Eliminar el documento "${doc.name}"?`)) {
+                            try {
+                              if (doc.isChunked) {
+                                const chunksRef = collection(db, `documents/${doc.id}/chunks`);
+                                const snapshot = await getDocs(chunksRef);
+                                if (!snapshot.empty) {
+                                  const batch = writeBatch(db);
+                                  snapshot.docs.forEach(chunkDoc => {
+                                    batch.delete(chunkDoc.ref);
+                                  });
+                                  await batch.commit();
+                                }
                               }
+                              await deleteDoc(firestoreDoc(db, 'documents', doc.id));
+                            } catch (err) {
+                              console.error("Error al eliminar documento:", err);
+                              alert("Error al eliminar el documento.");
                             }
-                            await deleteDoc(firestoreDoc(db, 'documents', doc.id));
                           }
                         }}
+                        title="Eliminar documento"
                         className="p-2 hover:bg-red-50 rounded-lg text-red-400 transition-colors"
                       >
                         <Trash2 className="w-4 h-4" />

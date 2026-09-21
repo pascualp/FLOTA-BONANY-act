@@ -45,6 +45,9 @@
           "name": { "type": "string" },
           "type": { "type": "string" },
           "url": { "type": "string" },
+          "size": { "type": "number" },
+          "isChunked": { "type": "boolean" },
+          "totalChunks": { "type": "number" },
           "uploadedAt": { "type": "timestamp" }
         }
       }

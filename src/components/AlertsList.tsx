@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { CheckCircle2, Search, Filter, ArrowUpDown } from 'lucide-react';
+import { CheckCircle2, Search, Filter, Mail } from 'lucide-react';
 import { Vehicle, Alert } from '../types';
 import { parseEsDate } from '../utils';
 
@@ -31,10 +31,11 @@ export const AlertsList = ({ alerts, setSelectedVehicle, setIsEditing }: AlertsL
 
     // Group by vehicle ID
     initialFiltered.forEach(al => {
-      if (!groups[al.vehicle.id]) {
-        groups[al.vehicle.id] = { vehicle: al.vehicle, alerts: [] };
+      const vId = al.vehicle.id || al.vehicle.matricula;
+      if (!groups[vId]) {
+        groups[vId] = { vehicle: al.vehicle, alerts: [] };
       }
-      groups[al.vehicle.id].alerts.push(al);
+      groups[vId].alerts.push(al);
     });
 
     // Convert back to array
