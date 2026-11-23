@@ -62,7 +62,7 @@ const HERRAMIENTAS: Anthropic.Beta.Messages.BetaToolUnion[] = [
 ];
 
 interface Adjunto { fileId: string; nombre: string; mime: string }
-interface Ctx { chatId: number; quien: string; adjunto?: Adjunto; flota?: Vehicle[]; propuestas: { id: string; resumen: string }[] }
+export interface Ctx { chatId: number; quien: string; adjunto?: Adjunto; flota?: Vehicle[]; propuestas: { id: string; resumen: string }[] }
 
 // ---------- Validaciones ----------
 const esFecha = (s: unknown) => typeof s === 'string' && /^\d{2}\/\d{2}\/\d{4}$/.test(s) && !!parseEsDate(s);
@@ -217,7 +217,7 @@ async function aplicar(p: any, quien: string) {
 }
 
 // ---------- El agente (Claude con herramientas) ----------
-async function agente(ctx: Ctx, historial: { u: string; a: string }[], contenido: BloqueParam[]): Promise<string> {
+export async function agente(ctx: Ctx, historial: { u: string; a: string }[], contenido: BloqueParam[]): Promise<string> {
   const client = new Anthropic();
   const messages: MsgParam[] = [];
   for (const par of historial) messages.push({ role: 'user', content: par.u }, { role: 'assistant', content: par.a });
