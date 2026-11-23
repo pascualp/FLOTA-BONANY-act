@@ -66,7 +66,8 @@ export default function App() {
     // cambio de la base. Eso duplicaba fichas (5875NDS ×4) y resucitaba cualquier vehículo borrado. La flota ya
     // está en Firestore: solo se lee.
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const existingData = snapshot.docs.map(doc => ({ id: doc.id, ...(doc.data() as any) })) as Vehicle[];
+      const existingData = (snapshot.docs.map(doc => ({ id: doc.id, ...(doc.data() as any) })) as Vehicle[])
+        .filter(v => !v.baja);   // los dados de baja no se enseñan
       setDataError('');
       setVehicles(existingData);
       setLoading(false);

@@ -20,6 +20,10 @@ export interface Vehicle {
   createdAt?: Timestamp;
   // Citas ya sacadas y pendientes de llevar el vehículo (las pone el agente de Telegram al pulsar ✅)
   citas?: Partial<Record<ClaveTramite, Cita>>;
+  // Dado de baja (ya no es de la flota): no sale en la web, ni en el reporte, ni en el agente. Se marca en vez de
+  // borrar para que se pueda deshacer y para que una pestaña con la web vieja (seedData) no lo vuelva a crear.
+  baja?: boolean;
+  bajaMotivo?: string;
 }
 
 export type ClaveTramite = 'itv' | 'atp' | 'tacografo';

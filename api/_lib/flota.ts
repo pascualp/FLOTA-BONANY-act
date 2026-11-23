@@ -23,7 +23,8 @@ export const db = (): Firestore => getFirestore(firebaseAdmin(), BASE_DE_DATOS);
 
 export async function cargarFlota(): Promise<Vehicle[]> {
   const snap = await db().collection('vehicles').get();
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() })) as Vehicle[];
+  // Los dados de baja (campo «baja») no cuentan: ni en el reporte ni en el agente.
+  return (snap.docs.map((d) => ({ id: d.id, ...d.data() })) as Vehicle[]).filter((v) => !v.baja);
 }
 
 // «9151 KWJ», «9151-kwj» → «9151KWJ»
