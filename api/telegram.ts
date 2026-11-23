@@ -1,7 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
+import { MsEdgeTTS, OUTPUT_FORMAT } from 'msedge-tts';
 import {
-  bajarArchivoTelegram, buscarVehiculo, cargarFlota, chatsPermitidos, db, enviarTexto, escaparHtml as esc,
+  bajarArchivoTelegram, buscarVehiculo, cargarFlota, chatsPermitidos, db, enviarTexto, enviarVoz, escaparHtml as esc,
   hoyLargo, hoyTexto, normalizarMatricula, tg, TRAMITES, URL_APP,
 } from './_lib/flota.js';
 import { getVehicleAlerts, parseEsDate, textoCita } from '../src/utils.js';
@@ -11,8 +12,12 @@ import type { ClaveTramite, Vehicle } from '../src/types.js';
 // Lo usan Facu y Jordi (grupo + privados: lista TELEGRAM_CHATS, o estar en el grupo). Claude consulta la flota y PROPONE cambios;
 // cada propuesta queda en flota_agente_pendientes y solo se escribe en la app cuando alguien pulsa ✅.
 //
+// Audios (23/11, Facu: «que conteste por voz y que entienda también por audio»): las notas de voz se pasan a texto con
+// Deepgram (nova-3, español) y, si el mensaje era un audio, la respuesta va escrita Y en nota de voz (Tomás, la voz que
+// Facu eligió para Bruno el 19/11 tras descartar Aquila). Si se escribe, se contesta solo por escrito.
+//
 // Variables: TELEGRAM_TOKEN, TELEGRAM_SECRET (cabecera del webhook), TELEGRAM_CHATS, ANTHROPIC_API_KEY,
-// FIREBASE_SERVICE_ACCOUNT (reporte-flota, con permiso de escritura).
+// FIREBASE_SERVICE_ACCOUNT (reporte-flota, con permiso de escritura), DEEPGRAM_API_KEY (audios).
 
 type MsgParam = Anthropic.Beta.Messages.BetaMessageParam;
 type BloqueParam = Anthropic.Beta.Messages.BetaContentBlockParam;
@@ -44,7 +49,8 @@ Reglas:
 - Fechas siempre dd/mm/aaaa (año con 4 cifras) y horas HH:MM. «Mañana», «el martes», «el día 2»: calcúlalo con la fecha de hoy, que va al principio de cada mensaje.
 - Si mandan una foto o un PDF sin decir nada, mira qué es (tarjeta o informe de ITV, permiso de circulación, póliza, ficha técnica, multa…), di lo que ves y propón guardarlo en el vehículo que toque (busca la matrícula en el documento). Si es una ITV favorable, propón también la nueva fecha de la próxima ITV.
 - No borras vehículos ni documentos: eso se hace en la web, ${URL_APP}
-- Si preguntan qué hay pendiente, usa ver_flota y resume: primero las citas de hoy y mañana, luego lo vencido sin cita y lo próximo a vencer.`;
+- Si preguntan qué hay pendiente, usa ver_flota y resume: primero las citas de hoy y mañana, luego lo vencido sin cita y lo próximo a vencer.
+- Si el mensaje llega POR AUDIO (va marcado), es una transcripción automática: las matrículas y los nombres pueden venir mal oídos («nueve uno cinco uno ka uve jota», números sueltos…); búscalas en la flota y, si dudas, pregunta. Tu respuesta se leerá también en voz alta: sé más breve (2-4 frases), sin listas largas; si hay muchos vehículos, di cuántos son y los más urgentes.`;
 
 const tramite = { type: 'string', enum: ['itv', 'atp', 'tacografo'], description: 'itv = ITV Técnica, atp = Vencimiento ATP, tacografo = Revisión Tacógrafo' };
 const matricula = { type: 'string', description: 'Matrícula del vehículo, tal como está en la flota' };
@@ -256,6 +262,74 @@ export async function agente(ctx: Ctx, historial: { u: string; a: string }[], co
   return 'Me he liado con tantas consultas. ¿Me lo dices más concreto?';
 }
 
+// ---------- Voz: entender audios (Deepgram) y contestar con nota de voz (Tomás) ----------
+const VOZ = 'es-AR-TomasNeural';   // la de Bruno desde el 19/11 (Facu: Aquila de Deepgram, «horrible»)
+const MAX_VOZ = 700;               // letras en voz alta; el resto queda escrito
+
+async function transcribir(datos: Buffer, mime: string): Promise<string> {
+  const clave = process.env.DEEPGRAM_API_KEY;
+  if (!clave) throw new Error('Falta DEEPGRAM_API_KEY en el servidor');
+  const q = new URLSearchParams({ model: 'nova-3', language: 'es', smart_format: 'true', punctuate: 'true' });
+  const r = await fetch(`https://api.deepgram.com/v1/listen?${q}`, {
+    method: 'POST', headers: { Authorization: `Token ${clave}`, 'Content-Type': mime },
+    body: new Uint8Array(datos), signal: AbortSignal.timeout(30000),
+  });
+  if (!r.ok) throw new Error(`Deepgram respondió ${r.status}: ${(await r.text()).slice(0, 150)}`);
+  const j: any = await r.json();
+  return String(j?.results?.channels?.[0]?.alternatives?.[0]?.transcript || '').trim();
+}
+
+const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+const deletrear = (s: string) => s.split('').join(' ');
+
+// Lo que se lee en voz alta: sin emojis ni enlaces; fechas en palabras y matrículas letra a letra («9 1 5 1 K W J»).
+export function paraDecir(t: string): string {
+  return t
+    .replace(/https?:\/\/\S+/g, 'la web')
+    .replace(/[\p{Extended_Pictographic}\u{FE0F}\u{200D}]/gu, '')
+    .replace(/\b(\d{1,2})\/(\d{1,2})\/(\d{4}|\d{2})\b/g, (m, d, me, a) => {
+      const mes = MESES[Number(me) - 1];
+      return mes ? `${Number(d)} de ${mes} de ${a.length === 2 ? '20' + a : a}` : m;
+    })
+    .replace(/\b(\d{4}) ?([A-Z]{3})\b/g, (_m, n, l) => `${deletrear(n)} ${deletrear(l)}`)
+    .replace(/\b([A-Z]{1,2}) ?(\d{4}) ?([A-Z]{1,2})\b/g, (_m, a, n, b) => `${deletrear(a)} ${deletrear(n)} ${deletrear(b)}`)
+    .replace(/\bFacu\b/g, 'Facundo')   // como en Bruno: «Facu» sonaba «facultad»
+    .replace(/[*_#`|>~<]/g, '')
+    .replace(/\s+/g, ' ').replace(/ ([,.;:!?])/g, '$1').trim();
+}
+
+// Corta por frases para que la nota de voz no sea eterna (lo escrito va completo).
+export function recortar(t: string, max = MAX_VOZ): string {
+  if (t.length <= max) return t;
+  let dicho = '';
+  for (const frase of t.split(/(?<=[.!?…:])\s+/)) {
+    if ((dicho + ' ' + frase).trim().length > max) break;
+    dicho = (dicho + ' ' + frase).trim();
+  }
+  return (dicho || t.slice(0, max)) + ' El resto te lo dejo escrito.';
+}
+
+export async function vozTomas(texto: string): Promise<Buffer> {
+  let ultimoError: unknown;
+  for (let intento = 0; intento < 2; intento++) {
+    const tts = new MsEdgeTTS();
+    try {
+      await tts.setMetadata(VOZ, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
+      const { audioStream } = tts.toStream(texto, { rate: '+30%' });   // Facu quiere a Bruno rápido
+      const trozos: Buffer[] = [];
+      await new Promise<void>((ok, mal) => {
+        audioStream.on('data', (d: Buffer) => trozos.push(d));
+        audioStream.on('end', () => ok()); audioStream.on('close', () => ok()); audioStream.on('error', mal);
+        setTimeout(() => mal(new Error('la voz tarda demasiado')), 15000);
+      });
+      if (trozos.length) return Buffer.concat(trozos);
+      ultimoError = new Error('la voz salió vacía');
+    } catch (e) { ultimoError = e; }
+    finally { try { tts.close(); } catch { /* ya cerrada */ } }
+  }
+  throw ultimoError;
+}
+
 // ---------- Mensajes y botones de Telegram ----------
 const IMAGENES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
 
@@ -270,6 +344,27 @@ async function atenderMensaje(msg: any) {
     adjunto = { fileId: grande.file_id, nombre: `foto-${hoyTexto().split('/').reverse().join('-')}.jpg`, mime: 'image/jpeg' };
   } else if (msg.document) {
     adjunto = { fileId: msg.document.file_id, nombre: msg.document.file_name || 'archivo', mime: msg.document.mime_type || 'application/octet-stream' };
+  }
+
+  // Audio (nota de voz, archivo de audio o vídeo redondo): se pasa a texto y se trata como si lo hubieran escrito.
+  const audio = msg.voice ?? msg.audio ?? msg.video_note;
+  let oido = '';
+  if (audio) {
+    const responder = { reply_to_message_id: msg.message_id, allow_sending_without_reply: true };
+    await tg('sendChatAction', { chat_id: chatId, action: 'typing' }).catch(() => {});
+    try {
+      const { datos } = await bajarArchivoTelegram(audio.file_id);
+      oido = await transcribir(datos, audio.mime_type || (msg.video_note ? 'video/mp4' : 'audio/ogg'));
+    } catch (e) {
+      console.error('[telegram] no pude transcribir el audio:', e);
+      await enviarTexto(chatId, 'No pude escuchar el audio. ¿Me lo escribes?', responder);
+      return;
+    }
+    if (!oido) {
+      await enviarTexto(chatId, 'No te he entendido el audio. ¿Me lo repites o me lo escribes?', responder);
+      return;
+    }
+    texto = texto ? `${texto}\n${oido}` : oido;
   }
   if (!texto && !adjunto) return;
   if (texto === '/start' || texto.startsWith('/start@')) texto = 'Hola, ¿qué sabes hacer?';
@@ -288,7 +383,8 @@ async function atenderMensaje(msg: any) {
     }
     notaAdjunto = `\n[Adjunta un archivo: «${adjunto.nombre}» (${adjunto.mime}, ${Math.round(datos.length / 1024)} KB). Se puede guardar con proponer_guardar_archivo.]`;
   }
-  contenido.push({ type: 'text', text: `[Hoy es ${hoyLargo()}. Escribe ${quien}.]\n${texto || '(sin texto)'}${notaAdjunto}` });
+  const como = audio ? `${quien} POR AUDIO (transcripción automática)` : quien;
+  contenido.push({ type: 'text', text: `[Hoy es ${hoyLargo()}. Escribe ${como}.]\n${texto || '(sin texto)'}${notaAdjunto}` });
 
   const chatRef = db().collection(COL_CHATS).doc(String(chatId));
   const historial: { u: string; a: string }[] = ((await chatRef.get()).get('pares') || []).slice(-MAX_PARES);
@@ -296,7 +392,18 @@ async function atenderMensaje(msg: any) {
   const ctx: Ctx = { chatId, quien, adjunto, propuestas: [] };
   const respuesta = await agente(ctx, historial, contenido);
 
-  await enviarTexto(chatId, esc(respuesta), { reply_to_message_id: msg.message_id, allow_sending_without_reply: true });
+  // Con audio, primero lo que se entendió (así se ve si cogió bien la matrícula) y después la respuesta.
+  const escrito = audio ? `🎤 <i>«${esc(oido)}»</i>\n\n${esc(respuesta)}` : esc(respuesta);
+  await enviarTexto(chatId, escrito, { reply_to_message_id: msg.message_id, allow_sending_without_reply: true });
+  if (audio) {
+    try {
+      await tg('sendChatAction', { chat_id: chatId, action: 'record_voice' }).catch(() => {});
+      const mp3 = await vozTomas(recortar(paraDecir(respuesta)));
+      await enviarVoz(chatId, mp3, 'audio/mpeg', 'respuesta.mp3', msg.message_id);
+    } catch (e) {
+      console.error('[telegram] no pude mandar la nota de voz:', e);   // la respuesta ya fue por escrito
+    }
+  }
   for (const p of ctx.propuestas) {
     await enviarTexto(chatId, `📝 <b>¿Lo guardo?</b>\n${esc(p.resumen)}`, {
       reply_markup: { inline_keyboard: [[{ text: '✅ Sí, guardar', callback_data: `ok:${p.id}` }, { text: '❌ No', callback_data: `no:${p.id}` }]] },
@@ -304,7 +411,7 @@ async function atenderMensaje(msg: any) {
   }
 
   const pares = [...historial, {
-    u: `${quien}: ${texto || '(sin texto)'}${adjunto ? ` [adjuntó ${adjunto.nombre}]` : ''}`,
+    u: `${quien}${audio ? ' (audio)' : ''}: ${texto || '(sin texto)'}${adjunto ? ` [adjuntó ${adjunto.nombre}]` : ''}`,
     a: respuesta + (ctx.propuestas.length ? `\n[Propuestas con botón: ${ctx.propuestas.map((p) => p.resumen).join(' | ')}]` : ''),
   }].slice(-MAX_PARES);
   await chatRef.set({ pares, actualizado: FieldValue.serverTimestamp() });

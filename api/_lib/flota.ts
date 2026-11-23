@@ -97,6 +97,20 @@ export async function enviarTexto(chatId: number | string, texto: string, extra:
   return ultimo;
 }
 
+// Nota de voz (multipart). Telegram la enseña como audio de voz si es OGG/Opus, MP3 o M4A.
+export async function enviarVoz(chatId: number | string, audio: Buffer, mime: string, nombre: string, responderA?: number) {
+  const token = process.env.TELEGRAM_TOKEN;
+  if (!token) throw new Error('Falta TELEGRAM_TOKEN en el servidor');
+  const fd = new FormData();
+  fd.append('chat_id', String(chatId));
+  fd.append('voice', new Blob([new Uint8Array(audio)], { type: mime }), nombre);
+  if (responderA) fd.append('reply_parameters', JSON.stringify({ message_id: responderA, allow_sending_without_reply: true }));
+  const r = await fetch(`https://api.telegram.org/bot${token}/sendVoice`, { method: 'POST', body: fd });
+  const j: any = await r.json().catch(() => ({}));
+  if (!j.ok) throw new Error(`Telegram sendVoice: ${j.description || r.status}`);
+  return j.result;
+}
+
 export async function bajarArchivoTelegram(fileId: string): Promise<{ datos: Buffer; ruta: string }> {
   const f = await tg('getFile', { file_id: fileId });
   const r = await fetch(`https://api.telegram.org/file/bot${process.env.TELEGRAM_TOKEN}/${f.file_path}`);
