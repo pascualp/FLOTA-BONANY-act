@@ -9,10 +9,9 @@ import {
   LogOut
 } from 'lucide-react';
 import { db, auth } from './lib/firebase';
-import { collection, addDoc, onSnapshot, query, serverTimestamp, where } from 'firebase/firestore';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { onAuthStateChanged, signOut, User } from 'firebase/auth';
 import { LoginScreen } from './components/LoginScreen';
-import { seedData } from './lib/seedData';
 import { Vehicle, VehicleDocument } from './types';
 import { getAllAlerts, calculateStats } from './utils';
 
@@ -63,22 +62,11 @@ export default function App() {
   useEffect(() => {
     if (!user) return;
     const q = query(collection(db, 'vehicles'));
-    const unsubscribe = onSnapshot(q, async (snapshot) => {
+    // 23/11/2026: antes aquí se volvían a crear los vehículos de la lista inicial (seedData) que «faltaban» en cada
+    // cambio de la base. Eso duplicaba fichas (5875NDS ×4) y resucitaba cualquier vehículo borrado. La flota ya
+    // está en Firestore: solo se lee.
+    const unsubscribe = onSnapshot(q, (snapshot) => {
       const existingData = snapshot.docs.map(doc => ({ id: doc.id, ...(doc.data() as any) })) as Vehicle[];
-      const existingMatriculas = existingData.map(d => d.matricula);
-
-      const missing = seedData.filter(v => !existingMatriculas.includes(v.matricula));
-      try {
-        for (const v of missing) {
-          await addDoc(collection(db, 'vehicles'), {
-            ...v,
-            createdAt: serverTimestamp()
-          });
-        }
-      } catch (error) {
-        // Que un vehículo de ejemplo no se pueda crear no debe dejar la flota sin cargar
-        console.error('No se pudieron crear los vehículos iniciales:', error);
-      }
       setDataError('');
       setVehicles(existingData);
       setLoading(false);
