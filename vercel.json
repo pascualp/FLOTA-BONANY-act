@@ -10,5 +10,10 @@
       "path": "/api/reporte-diario",
       "schedule": "0 7 * * *"
     }
-  ]
+  ],
+  "functions": {
+    "api/telegram.ts": {
+      "maxDuration": 60
+    }
+  }
 }

@@ -18,6 +18,18 @@ export interface Vehicle {
   revisionTacografo: string;
   priority?: 'low' | 'medium' | 'high';
   createdAt?: Timestamp;
+  // Citas ya sacadas y pendientes de llevar el vehículo (las pone el agente de Telegram al pulsar ✅)
+  citas?: Partial<Record<ClaveTramite, Cita>>;
+}
+
+export type ClaveTramite = 'itv' | 'atp' | 'tacografo';
+
+export interface Cita {
+  fecha: string;   // dd/MM/yyyy
+  hora?: string;   // HH:mm
+  lugar?: string;
+  notas?: string;
+  por?: string;    // quién la apuntó
 }
 
 export interface VehicleDocument {
@@ -42,4 +54,6 @@ export interface Alert {
   type: string;
   date: string;
   status: AlertStatus;
+  clave?: ClaveTramite;
+  cita?: Cita;
 }

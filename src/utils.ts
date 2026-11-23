@@ -1,5 +1,16 @@
 import { parse, isValid, isBefore, addDays } from 'date-fns';
-import { Vehicle, AlertStatus } from './types';
+import { Vehicle, AlertStatus, ClaveTramite, Cita } from './types';
+
+// Los tres trámites con fecha de la flota: clave corta, nombre en pantalla y campo del vehículo.
+export const TRAMITES: { clave: ClaveTramite; label: string; campo: 'proximaITV' | 'vencimientoATP' | 'revisionTacografo' }[] = [
+  { clave: 'itv', label: 'ITV Técnica', campo: 'proximaITV' },
+  { clave: 'atp', label: 'Vencimiento ATP', campo: 'vencimientoATP' },
+  { clave: 'tacografo', label: 'Revisión Tacógrafo', campo: 'revisionTacografo' },
+];
+
+// «Cita 02/12/2026 10:00 (Inca) – pendiente de llevar»
+export const textoCita = (c: Cita) =>
+  `Cita ${c.fecha}${c.hora ? ' ' + c.hora : ''}${c.lugar ? ' (' + c.lugar + ')' : ''} – pendiente de llevar`;
 
 export const parseEsDate = (dateStr: any) => {
   if (!dateStr || typeof dateStr !== 'string' || dateStr.toLowerCase().includes('no')) return null;
@@ -47,18 +58,13 @@ export const getMissingFields = (v: Vehicle) => {
 };
 
 export const getVehicleAlerts = (v: Vehicle) => {
-  const alerts: { label: string; status: 'danger' | 'warning' | 'success' | 'unknown'; text: string; date: string }[] = [];
-  
-  const fields = [
-    { label: 'ITV Técnica', value: v.proximaITV },
-    { label: 'Vencimiento ATP', value: v.vencimientoATP },
-    { label: 'Revisión Tacógrafo', value: v.revisionTacografo }
-  ];
+  const alerts: { label: string; status: 'danger' | 'warning' | 'success' | 'unknown'; text: string; date: string; clave: ClaveTramite; cita?: Cita }[] = [];
 
-  fields.forEach(f => {
-    if (f.value) {
-      const st = getAlertStatus(f.value, v.priority || 'medium');
-      alerts.push({ label: f.label, ...st, date: f.value });
+  TRAMITES.forEach(t => {
+    const value = v[t.campo];
+    if (value) {
+      const st = getAlertStatus(value, v.priority || 'medium');
+      alerts.push({ label: t.label, ...st, date: value, clave: t.clave, cita: v.citas?.[t.clave] });
     }
   });
 
@@ -70,7 +76,7 @@ export const getAllAlerts = (vehicles: Vehicle[]) => {
   vehicles.forEach(v => {
     const vAlerts = getVehicleAlerts(v);
     vAlerts.forEach(a => {
-      alerts.push({ vehicle: v, type: a.label, date: a.date, status: { status: a.status, text: a.text } });
+      alerts.push({ vehicle: v, type: a.label, date: a.date, status: { status: a.status, text: a.text }, clave: a.clave, cita: a.cita });
     });
   });
   return alerts.sort((a, b) => {

@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { CheckCircle2, Search, Filter, Mail } from 'lucide-react';
 import { Vehicle, Alert } from '../types';
-import { parseEsDate } from '../utils';
+import { parseEsDate, textoCita } from '../utils';
 
 interface AlertsListProps {
   alerts: Alert[];
@@ -138,8 +138,10 @@ export const AlertsList = ({ alerts, setSelectedVehicle, setIsEditing }: AlertsL
             </thead>
             <tbody className="text-sm">
               {groupedAlerts.map((group, idx) => {
-                const hasDanger = group.alerts.some(a => a.status.status === 'danger');
-                const hasWarning = group.alerts.some(a => a.status.status === 'warning');
+                // Lo que ya tiene cita sacada no pinta la fila de rojo/ámbar: pasa a azul (pendiente de llevar).
+                const hasDanger = group.alerts.some(a => a.status.status === 'danger' && !a.cita);
+                const hasWarning = group.alerts.some(a => a.status.status === 'warning' && !a.cita);
+                const hasCita = group.alerts.some(a => a.cita);
                 
                 return (
                    <tr 
@@ -147,6 +149,7 @@ export const AlertsList = ({ alerts, setSelectedVehicle, setIsEditing }: AlertsL
                     className={`transition-colors group border-b border-white ${
                       hasDanger ? 'bg-red-100' : 
                       hasWarning ? 'bg-amber-100' : 
+                      hasCita ? 'bg-blue-50' :
                       'bg-white'
                     }`}
                   >
@@ -172,6 +175,11 @@ export const AlertsList = ({ alerts, setSelectedVehicle, setIsEditing }: AlertsL
                             }`}>
                               {al.status.text}
                             </span>
+                            {al.cita && (
+                              <span className="text-[9px] px-2.5 py-0.5 rounded-full font-black uppercase tracking-wider bg-blue-600 text-white shadow-sm">
+                                📅 {textoCita(al.cita)}
+                              </span>
+                            )}
                           </div>
                         ))}
                       </div>
