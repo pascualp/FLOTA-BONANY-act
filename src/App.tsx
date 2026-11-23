@@ -15,7 +15,6 @@ import { LoginScreen } from './components/LoginScreen';
 import { seedData } from './lib/seedData';
 import { Vehicle, VehicleDocument } from './types';
 import { getAllAlerts, calculateStats } from './utils';
-import { EmailService } from './lib/email';
 
 // Components
 import { AlertsList } from './components/AlertsList';
@@ -36,72 +35,26 @@ export default function App() {
   const [user, setUser] = useState<User | null | undefined>(undefined);
   const [dataError, setDataError] = useState('');
 
-  useEffect(() => {
-    EmailService.init();
-  }, []);
-
   useEffect(() => onAuthStateChanged(auth, (u) => {
     setUser(u);
     if (!u) { setVehicles([]); setLoading(true); }
   }), []);
 
+  // Manda ya el mismo reporte que sale solo cada mañana (lo arma y lo envía el servidor: /api/reporte-diario).
   const sendEmailReport = async () => {
-    if (alerts.length === 0) {
-      alert('No hay alertas pendientes para enviar.');
-      return;
-    }
-
+    if (!auth.currentUser) return;
     setIsSendingEmail(true);
     try {
-      const dangerAlerts = alerts.filter(a => a.status.status === 'danger');
-      const warningAlerts = alerts.filter(a => a.status.status === 'warning');
-
-      const html = `
-        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px;">
-          <h2 style="color: #1e293b; margin-top: 0;">Resumen de Alertas - Flotas Bonany</h2>
-          <p style="color: #64748b;">Se han detectado los siguientes trámites pendientes en la flota:</p>
-          
-          ${dangerAlerts.length > 0 ? `
-            <h3 style="color: #dc2626; margin-bottom: 10px;">⚠️ VENCIDOS (${dangerAlerts.length})</h3>
-            <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
-              ${dangerAlerts.map(a => `
-                <tr style="border-bottom: 1px solid #fee2e2; background-color: #fef2f2;">
-                  <td style="padding: 12px; font-weight: bold; color: #1e293b; border-bottom: 1px solid #fee2e2;">${a.vehicle.matricula}</td>
-                  <td style="padding: 12px; color: #1e293b; border-bottom: 1px solid #fee2e2;">${a.type}</td>
-                  <td style="padding: 12px; color: #dc2626; font-weight: bold; text-align: right; border-bottom: 1px solid #fee2e2;">${a.date}</td>
-                </tr>
-              `).join('')}
-            </table>
-          ` : ''}
-
-          ${warningAlerts.length > 0 ? `
-            <h3 style="color: #d97706; margin-bottom: 10px;">🔔 PRÓXIMOS A VENCER (${warningAlerts.length})</h3>
-            <table style="width: 100%; border-collapse: collapse;">
-              ${warningAlerts.map(a => `
-                <tr style="border-bottom: 1px solid #fef3c7; background-color: #fffbeb;">
-                  <td style="padding: 12px; font-weight: bold; color: #1e293b; border-bottom: 1px solid #fef3c7;">${a.vehicle.matricula}</td>
-                  <td style="padding: 12px; color: #1e293b; border-bottom: 1px solid #fef3c7;">${a.type}</td>
-                  <td style="padding: 12px; color: #d97706; font-weight: bold; text-align: right; border-bottom: 1px solid #fef3c7;">${a.date}</td>
-                </tr>
-              `).join('')}
-            </table>
-          ` : ''}
-
-          <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #94a3b8; text-align: center;">
-            Este es un correo automático generado por el Sistema de Gestión de Flotas Bonany.
-          </div>
-        </div>
-      `;
-
-      await EmailService.sendEmail({
-        to: 'porteousfacundo@gmail.com',
-        subject: `⚠️ Alerta de Vencimientos: ${dangerAlerts.length} vencidos / ${warningAlerts.length} próximos`,
-        html
-      });
-      alert('Reporte enviado correctamente a porteousfacundo@gmail.com');
+      const token = await auth.currentUser.getIdToken();
+      const r = await fetch('/api/reporte-diario', { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data.error || `Error ${r.status}`);
+      alert(data.enviado
+        ? `Reporte enviado a ${data.para} (${data.vencidos} vencidos, ${data.proximos} próximos).`
+        : 'No hay trámites pendientes: no se ha enviado nada.');
     } catch (error: any) {
       console.error(error);
-      alert('Error al enviar el correo: ' + (error.error || error.message || 'Error desconocido'));
+      alert('Error al enviar el correo: ' + (error.message || 'Error desconocido'));
     } finally {
       setIsSendingEmail(false);
     }

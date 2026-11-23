@@ -1,7 +1,7 @@
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
-import sendEmail from "./api/send-email";
+import reporteDiario from "./api/reporte-diario";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -12,8 +12,8 @@ async function startServer() {
 
   app.use(express.json());
 
-  // API Route to send emails (misma función que usa Vercel en /api/send-email)
-  app.post("/api/send-email", sendEmail);
+  // Reporte de vencimientos por correo (misma función que usa Vercel en /api/reporte-diario)
+  app.all("/api/reporte-diario", reporteDiario);
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
