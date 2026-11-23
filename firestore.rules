@@ -1,12 +1,105 @@
 rules_version = '2';
 
+// Reglas COMPARTIDAS por Flotas Bonany y Abonos Bonany: las dos apps usan la
+// misma base de datos, y desplegar reglas sustituye las anteriores enteras.
+// Este fichero tiene que ser idéntico en los dos proyectos (flota/ y abonos/).
+//
+// Dos tipos de usuario:
+//  - Personal de oficina: cuentas con email y contraseña creadas a mano en
+//    Firebase Console (Authentication > Users).
+//  - Repartidores: sesión anónima (eligen su nombre de una lista, sin
+//    contraseña). Solo pueden leer el catálogo y crear / ver sus abonos.
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /vehicles/{document} {
-      allow read, write: if true;
+
+    function isSignedIn() {
+      return request.auth != null;
     }
+
+    function isStaff() {
+      return isSignedIn() && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+
+    // ───────────── Flotas Bonany ─────────────
+
+    match /vehicles/{vehicleId} {
+      allow read, write: if isStaff();
+    }
+
+    // Documentos adjuntos y su subcolección /chunks.
     match /documents/{document=**} {
-      allow read, write: if true;
+      allow read, write: if isStaff();
+    }
+
+    // Marcadores internos, p. ej. config/seed.
+    match /config/{key} {
+      allow read, write: if isStaff();
+    }
+
+    // ───────────── Abonos Bonany ─────────────
+
+    // Clientes, productos y repartidores. Los repartidores lo necesitan para
+    // elegir de la lista; solo la oficina lo cambia.
+    match /catalogo/{id} {
+      allow read: if isSignedIn();
+      allow write: if isStaff();
+    }
+
+    match /abonos/{abonoId} {
+      function esMio() {
+        return resource.data.creadoPor == request.auth.uid;
+      }
+
+      function nuevoValido(d) {
+        return d.keys().hasOnly([
+                 'repartidorId', 'repartidorNombre', 'clienteCodigo', 'clienteNombre',
+                 'lineas', 'nota', 'numFotos', 'creadoPor', 'creadoEn', 'fechaDia',
+                 'hora', 'estado'])
+            && d.keys().hasAll([
+                 'repartidorId', 'repartidorNombre', 'clienteCodigo', 'clienteNombre',
+                 'lineas', 'nota', 'numFotos', 'creadoPor', 'creadoEn', 'fechaDia',
+                 'hora', 'estado'])
+            && d.creadoPor == request.auth.uid
+            && d.estado == 'pendiente'
+            && d.creadoEn == request.time
+            && d.repartidorNombre is string && d.repartidorNombre.size() > 0
+            && d.clienteNombre is string && d.clienteNombre.size() > 0
+            && d.clienteNombre.size() <= 200
+            && d.lineas is list && d.lineas.size() >= 1 && d.lineas.size() <= 50
+            && d.nota is string && d.nota.size() <= 1000
+            && d.numFotos is int && d.numFotos >= 0 && d.numFotos <= 3
+            && d.fechaDia is string && d.fechaDia.size() == 10;
+      }
+
+      allow read: if isStaff() || (isSignedIn() && esMio());
+      allow create: if isSignedIn() && nuevoValido(request.resource.data);
+      // Marcar como tramitado: solo oficina.
+      allow update: if isStaff();
+      // El repartidor puede borrar un abono suyo mientras siga pendiente.
+      allow delete: if isStaff()
+                    || (isSignedIn() && esMio() && resource.data.estado == 'pendiente');
+
+      match /fotos/{fotoId} {
+        function padre() {
+          return get(/databases/$(database)/documents/abonos/$(abonoId)).data;
+        }
+
+        allow read: if isStaff() || (isSignedIn() && padre().creadoPor == request.auth.uid);
+        // Se crean en el mismo lote que el abono, de ahí getAfter().
+        allow create: if isSignedIn()
+          && getAfter(/databases/$(database)/documents/abonos/$(abonoId)).data.creadoPor == request.auth.uid
+          && request.resource.data.keys().hasOnly(['data'])
+          && request.resource.data.data is string
+          && request.resource.data.data.size() < 900000;
+        allow update: if false;
+        allow delete: if isStaff()
+          || (isSignedIn() && padre().creadoPor == request.auth.uid && padre().estado == 'pendiente');
+      }
+    }
+
+    // Todo lo demás, denegado.
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

@@ -5,10 +5,13 @@ import {
   Plus,
   CheckCircle2,
   Mail,
-  Bell
+  Bell,
+  LogOut
 } from 'lucide-react';
-import { db } from './lib/firebase';
+import { db, auth } from './lib/firebase';
 import { collection, addDoc, onSnapshot, query, serverTimestamp, where } from 'firebase/firestore';
+import { onAuthStateChanged, signOut, User } from 'firebase/auth';
+import { LoginScreen } from './components/LoginScreen';
 import { seedData } from './lib/seedData';
 import { Vehicle, VehicleDocument } from './types';
 import { getAllAlerts, calculateStats } from './utils';
@@ -29,10 +32,18 @@ export default function App() {
   const [isEditing, setIsEditing] = useState(false);
   const [vehicleDocuments, setVehicleDocuments] = useState<VehicleDocument[]>([]);
   const [isSendingEmail, setIsSendingEmail] = useState(false);
+  // undefined = todavía comprobando la sesión; null = sin sesión
+  const [user, setUser] = useState<User | null | undefined>(undefined);
+  const [dataError, setDataError] = useState('');
 
   useEffect(() => {
     EmailService.init();
   }, []);
+
+  useEffect(() => onAuthStateChanged(auth, (u) => {
+    setUser(u);
+    if (!u) { setVehicles([]); setLoading(true); }
+  }), []);
 
   const sendEmailReport = async () => {
     if (alerts.length === 0) {
@@ -97,28 +108,40 @@ export default function App() {
   };
 
   useEffect(() => {
+    if (!user) return;
     const q = query(collection(db, 'vehicles'));
     const unsubscribe = onSnapshot(q, async (snapshot) => {
       const existingData = snapshot.docs.map(doc => ({ id: doc.id, ...(doc.data() as any) })) as Vehicle[];
       const existingMatriculas = existingData.map(d => d.matricula);
-      
+
       const missing = seedData.filter(v => !existingMatriculas.includes(v.matricula));
-      if (missing.length > 0) {
+      try {
         for (const v of missing) {
           await addDoc(collection(db, 'vehicles'), {
             ...v,
             createdAt: serverTimestamp()
           });
         }
+      } catch (error) {
+        // Que un vehículo de ejemplo no se pueda crear no debe dejar la flota sin cargar
+        console.error('No se pudieron crear los vehículos iniciales:', error);
       }
+      setDataError('');
       setVehicles(existingData);
       setLoading(false);
+    }, (error) => {
+      // Antes no había este aviso: con «permiso denegado» la pantalla se quedaba en «Cargando Flota...» para siempre
+      console.error('Error leyendo la flota:', error);
+      setDataError(error.code === 'permission-denied'
+        ? `La cuenta ${user.email || ''} no tiene permiso para ver la flota. Entra con otra cuenta.`
+        : `No se pudo cargar la flota: ${error.message}`);
+      signOut(auth);   // vuelve a la pantalla de entrada con el aviso, para poder probar con otra cuenta
     });
     return () => unsubscribe();
-  }, []);
+  }, [user]);
 
   useEffect(() => {
-    if (!selectedVehicle || !selectedVehicle.id) {
+    if (!user || !selectedVehicle || !selectedVehicle.id) {
       setVehicleDocuments([]);
       return;
     }
@@ -131,21 +154,25 @@ export default function App() {
         return b.uploadedAt.toMillis() - a.uploadedAt.toMillis();
       });
       setVehicleDocuments(data);
-    });
+    }, (error) => console.error('Error leyendo los documentos del vehículo:', error));
     return () => unsubscribe();
-  }, [selectedVehicle]);
+  }, [selectedVehicle, user]);
 
   const stats = calculateStats(vehicles);
   const alerts = getAllAlerts(vehicles);
 
   const currentVehicle = selectedVehicle ? vehicles.find(v => v.id === selectedVehicle.id) || selectedVehicle : null;
 
-  if (loading) {
+  if (user === null) {
+    return <LoginScreen aviso={dataError} />;
+  }
+
+  if (user === undefined || loading) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
           <Car className="w-12 h-12 text-blue-600 animate-bounce" />
-          <p className="text-slate-500 font-medium">Cargando Flota...</p>
+          <p className="text-slate-500 font-medium">{user === undefined ? 'Comprobando acceso...' : 'Cargando Flota...'}</p>
         </div>
       </div>
     );
@@ -188,7 +215,14 @@ export default function App() {
 
         <div className="mt-auto p-4 bg-slate-50 rounded-2xl border border-slate-100">
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Usuario</p>
-          <p className="text-sm font-bold text-slate-700">Administrador</p>
+          <p className="text-sm font-bold text-slate-700 truncate" title={user.email || ''}>{user.displayName || user.email || 'Administrador'}</p>
+          <button
+            onClick={() => signOut(auth)}
+            className="mt-3 text-xs font-semibold text-slate-500 hover:text-red-600 flex items-center gap-1"
+          >
+            <LogOut className="w-3 h-3" />
+            Salir
+          </button>
         </div>
       </div>
 
