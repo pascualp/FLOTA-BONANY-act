@@ -8,7 +8,7 @@ import { getVehicleAlerts, parseEsDate, textoCita } from '../src/utils.js';
 import type { ClaveTramite, Vehicle } from '../src/types.js';
 
 // Agente «Flotas Bonany» en Telegram (/api/telegram, webhook del bot).
-// Lo usan Facu y Jordi (grupo + privados, lista TELEGRAM_CHATS). Claude consulta la flota y PROPONE cambios;
+// Lo usan Facu y Jordi (grupo + privados: lista TELEGRAM_CHATS, o estar en el grupo). Claude consulta la flota y PROPONE cambios;
 // cada propuesta queda en flota_agente_pendientes y solo se escribe en la app cuando alguien pulsa ✅.
 //
 // Variables: TELEGRAM_TOKEN, TELEGRAM_SECRET (cabecera del webhook), TELEGRAM_CHATS, ANTHROPIC_API_KEY,
@@ -354,6 +354,21 @@ async function atenderBoton(cq: any) {
   }
 }
 
+// Un privado que no está en TELEGRAM_CHATS vale si esa persona está en uno de los grupos de la lista (los que empiezan
+// por «-»). Así Jordi —o quien Facu meta en el grupo— puede hablar con el bot a solas sin apuntar su número a mano.
+async function permitido(update: any, chatId: number): Promise<boolean> {
+  const lista = chatsPermitidos();
+  if (lista.has(String(chatId))) return true;
+  const chat = update.message?.chat ?? update.callback_query?.message?.chat;
+  const userId = update.message?.from?.id ?? update.callback_query?.from?.id;
+  if (chat?.type !== 'private' || !userId) return false;
+  for (const grupo of [...lista].filter((c) => c.startsWith('-'))) {
+    const m = await tg('getChatMember', { chat_id: grupo, user_id: userId }).catch(() => null);
+    if (m && (['creator', 'administrator', 'member'].includes(m.status) || (m.status === 'restricted' && m.is_member))) return true;
+  }
+  return false;
+}
+
 export default async function telegram(req: any, res: any) {
   if (req.method !== 'POST') return res.status(200).json({ ok: true });
   const secreto = process.env.TELEGRAM_SECRET;
@@ -362,7 +377,7 @@ export default async function telegram(req: any, res: any) {
   const update = req.body || {};
   const chatId = update.message?.chat?.id ?? update.callback_query?.message?.chat?.id;
   if (chatId === undefined) return res.status(200).json({ ok: true });
-  if (!chatsPermitidos().has(String(chatId))) {
+  if (!(await permitido(update, chatId))) {
     console.log(`[telegram] chat no permitido ${chatId} (${update.message?.chat?.title || update.message?.from?.first_name || ''})`);
     return res.status(200).json({ ok: true });
   }
