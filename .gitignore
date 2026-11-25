@@ -6,3 +6,7 @@ dist/
 
 .vercel
 .env*
+
+# Copia de datos REALES para el modo prueba (npm run dev → ?demo): nunca a GitHub
+public/demo-flota.json
+public/movil-prueba.html

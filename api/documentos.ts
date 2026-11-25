@@ -1,7 +1,7 @@
 import { getAuth } from 'firebase-admin/auth';
 import { FieldValue } from 'firebase-admin/firestore';
 import { db, firebaseAdmin } from './_lib/flota.js';
-import { AVISO_CUOTA, borrar, esCuotaAgotada, esRutaDe, rutaNueva, tamano, urlDescarga, urlSubida } from './_lib/archivos.js';
+import { AVISO_CUOTA, borrar, esCuotaAgotada, esRutaDe, metadatos, rutaNueva, urlDescarga, urlSubida } from './_lib/archivos.js';
 import { esCategoria, MAX_BYTES, TIPOS_ARCHIVO } from '../src/documentos.js';
 import { AVISO_SIN_ACCESO, tieneAcceso } from '../src/acceso.js';
 
@@ -50,11 +50,17 @@ export default async function documentos(req: any, res: any) {
         const vehicleId = texto(b.vehicleId, 60);
         const ruta = b.ruta;
         if (!esRutaDe(ruta, vehicleId)) return res.status(400).json({ error: 'Ruta de archivo no válida' });
-        const size = await tamano(ruta);
-        if (size === null) return res.status(400).json({ error: 'El archivo no llegó al almacén: vuelve a subirlo' });
+        const meta = await metadatos(ruta);
+        if (!meta) return res.status(400).json({ error: 'El archivo no llegó al almacén: vuelve a subirlo' });
+        // El enlace de subida no limita el tamaño: se comprueba aquí lo que llegó de verdad (y si no vale, se borra).
+        if (meta.size > MAX_BYTES || !TIPOS_ARCHIVO.includes(meta.tipo)) {
+          await borrar(ruta);
+          return res.status(400).json({ error: meta.size > MAX_BYTES ? 'El archivo pesa más de 25 MB' : 'Tipo de archivo no admitido: solo PDF o fotos' });
+        }
         const categoria = esCategoria(b.categoria) ? b.categoria : 'Otro';
+        const size = meta.size;
         const ref = await db().collection('documents').add({
-          vehicleId, name: texto(b.nombre, 150) || 'documento', type: texto(b.tipo, 60), size, categoria,
+          vehicleId, name: texto(b.nombre, 150) || 'documento', type: meta.tipo, size, categoria,
           url: '', isChunked: false, storagePath: ruta,
           uploadedAt: FieldValue.serverTimestamp(), subidoPor: `Web · ${quien}`,
         });
@@ -67,6 +73,7 @@ export default async function documentos(req: any, res: any) {
         if (!snap.exists) return res.status(404).json({ error: 'Ese documento ya no existe' });
         const ruta = snap.get('storagePath');
         if (!ruta) return res.status(200).json({ legado: true });
+        if (!(await metadatos(ruta))) return res.status(404).json({ error: 'El archivo de este documento no está en el almacén' });
         return res.status(200).json({ url: await urlDescarga(ruta, snap.get('name')) });
       }
 
@@ -75,7 +82,8 @@ export default async function documentos(req: any, res: any) {
         const snap = await ref.get();
         if (!snap.exists) return res.status(200).json({ ok: true });
         const ruta = snap.get('storagePath');
-        if (ruta) await borrar(ruta);
+        // Orden: trozos viejos → ficha → archivo. Si algo falla a medias, lo peor que queda es un archivo suelto en el
+        // almacén (no se ve y cuesta céntimos), nunca una ficha en la web que apunta a un archivo borrado.
         // Los documentos viejos tenían el archivo troceado en /chunks: se borran sin leerlos (listDocuments no baja datos).
         const trozos = await ref.collection('chunks').listDocuments();
         for (let i = 0; i < trozos.length; i += 400) {
@@ -84,6 +92,7 @@ export default async function documentos(req: any, res: any) {
           await lote.commit();
         }
         await ref.delete();
+        if (ruta) await borrar(ruta);
         console.log(`[documentos] ${quien} borró «${snap.get('name')}» (${ruta || trozos.length + ' trozos'})`);
         return res.status(200).json({ ok: true });
       }

@@ -39,7 +39,21 @@ function tabla(filas: { a: Alert; derecha: string }[], color: string, fondo: str
 const citaCorta = (a: Alert) =>
   `${esc(a.cita!.fecha)}${a.cita!.hora ? ' ' + esc(a.cita!.hora) : ''}${a.cita!.lugar ? ' · ' + esc(a.cita!.lugar) : ''}`;
 
+// Las fechas que FALTAN se agrupan en una línea por tipo («Falta la fecha de Seguro: 0313HBK, 1111KDV…»): cuando se
+// añadió el seguro (25/11/2026) faltaba en todos, y una línea por vehículo llenaba el mensaje. Las que están mal
+// escritas («00/00/00», «FALTA») sí van una a una, con lo que pone.
+export function separarRevisar(revisar: Alert[]) {
+  const faltan = new Map<string, string[]>();
+  const malEscritas: Alert[] = [];
+  for (const a of revisar) {
+    if (a.status.text === 'Falta la fecha') faltan.set(a.type, [...(faltan.get(a.type) || []), a.vehicle.matricula]);
+    else malEscritas.push(a);
+  }
+  return { faltan: [...faltan.entries()], malEscritas };
+}
+
 function montarCorreo({ conCita, vencidos, proximos, revisar }: Resumen, hoy: string) {
+  const { faltan, malEscritas } = separarRevisar(revisar);
   const subject = `⚠️ Flotas Bonany ${hoy}: ${vencidos.length} vencidos / ${proximos.length} próximos` +
     (conCita.length ? ` / ${conCita.length} con cita` : '') + (revisar.length ? ` / ${revisar.length} fechas a revisar` : '');
   const html = `
@@ -48,7 +62,9 @@ function montarCorreo({ conCita, vencidos, proximos, revisar }: Resumen, hoy: st
     ${conCita.length ? `<h3 style="color:#2563eb;margin-bottom:10px;">📅 CITAS SACADAS – pendientes de llevar (${conCita.length})</h3>${tabla(conCita.map((a) => ({ a, derecha: citaCorta(a) })), '#2563eb', '#eff6ff', '#dbeafe')}` : ''}
     ${vencidos.length ? `<h3 style="color:#dc2626;margin-bottom:10px;">⚠️ VENCIDOS (${vencidos.length})</h3>${tabla(vencidos.map((a) => ({ a, derecha: esc(a.date) })), '#dc2626', '#fef2f2', '#fee2e2')}` : ''}
     ${proximos.length ? `<h3 style="color:#d97706;margin-bottom:10px;">🔔 PRÓXIMOS A VENCER (${proximos.length})</h3>${tabla(proximos.map((a) => ({ a, derecha: esc(a.date) })), '#d97706', '#fffbeb', '#fef3c7')}` : ''}
-    ${revisar.length ? `<h3 style="color:#475569;margin-bottom:4px;">❓ FECHAS QUE HAY QUE REVISAR (${revisar.length})</h3><p style="margin:0 0 10px;color:#64748b;font-size:13px;">Faltan o están escritas de forma que no se entiende: ponlas bien en la app para que avise a tiempo.</p>${tabla(revisar.map((a) => ({ a, derecha: '«' + esc(a.date) + '»' })), '#475569', '#f8fafc', '#e2e8f0')}` : ''}
+    ${revisar.length ? `<h3 style="color:#475569;margin-bottom:4px;">❓ FECHAS QUE HAY QUE REVISAR (${revisar.length})</h3><p style="margin:0 0 10px;color:#64748b;font-size:13px;">Faltan o están escritas de forma que no se entiende: ponlas bien en la app para que avise a tiempo.</p>${
+      faltan.map(([tipo, mats]) => `<p style="margin:0 0 8px;color:#334155;font-size:14px;"><b>Falta la fecha de ${esc(tipo)}</b> (${mats.length}): ${mats.map(esc).join(', ')}</p>`).join('')
+    }${malEscritas.length ? tabla(malEscritas.map((a) => ({ a, derecha: '«' + esc(a.date) + '»' })), '#475569', '#f8fafc', '#e2e8f0') : ''}` : ''}
     <p style="margin-top:24px;"><a href="${URL_APP}" style="color:#2563eb;">Abrir la gestión de flotas</a></p>
     <div style="margin-top:24px;padding-top:16px;border-top:1px solid #e2e8f0;font-size:12px;color:#94a3b8;text-align:center;">
       Correo automático diario del Sistema de Gestión de Flotas Bonany.
@@ -85,7 +101,12 @@ export function textoTelegram({ conCita, vencidos, proximos, revisar }: Resumen)
   if (resto.length) L.push('', '📅 <b>Citas sacadas, pendientes de llevar:</b>', ...resto.map(lineaCita));
   if (vencidos.length) L.push('', `⚠️ <b>VENCIDOS sin cita (${vencidos.length}):</b>`, ...vencidos.map(lineaAlerta));
   if (proximos.length) L.push('', `🔔 <b>Próximos a vencer (${proximos.length}):</b>`, ...proximos.map(lineaAlerta));
-  if (revisar.length) L.push('', `❓ <b>Fechas que faltan o que no entiendo, ponedlas bien (${revisar.length}):</b>`, ...revisar.map(lineaAlerta));
+  if (revisar.length) {
+    const { faltan, malEscritas } = separarRevisar(revisar);
+    L.push('', `❓ <b>Fechas que faltan o que no entiendo, ponedlas bien (${revisar.length}):</b>`,
+      ...faltan.map(([tipo, mats]) => `• Falta la fecha de <b>${esc(tipo)}</b> (${mats.length}): ${mats.map(esc).join(', ')}`),
+      ...malEscritas.map(lineaAlerta));
+  }
   return L.join('\n');
 }
 

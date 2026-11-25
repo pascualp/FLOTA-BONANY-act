@@ -61,12 +61,12 @@ export const AlertsList = ({ alerts, setSelectedVehicle, setIsEditing }: AlertsL
   }, [alerts, searchTerm, statusFilter, sortBy]);
 
   return (
-    <div className="flex-1 bg-white rounded-3xl border border-slate-200 overflow-hidden flex flex-col">
-      <div className="p-6 border-b border-slate-100 space-y-4">
-        <div className="flex justify-between items-center">
+    <div className="flex-1 min-w-0 bg-white rounded-3xl border border-slate-200 overflow-hidden flex flex-col">
+      <div className="p-4 md:p-6 border-b border-slate-100 space-y-4">
+        <div className="hidden md:flex justify-between items-center">
           <div>
-            <h4 className="font-bold text-slate-800 text-lg">Estado de la Flota</h4>
-            <p className="text-sm text-slate-500">Control total de trámites, mantenimientos y vencimientos.</p>
+            <h4 className="font-bold text-slate-800 text-lg">Vencimientos</h4>
+            <p className="text-sm text-slate-500">ITV, ATP, tacógrafo y seguro de cada vehículo. Toca uno para ver su ficha.</p>
           </div>
         </div>
 
@@ -130,10 +130,10 @@ export const AlertsList = ({ alerts, setSelectedVehicle, setIsEditing }: AlertsL
           <table className="w-full text-left">
             <thead>
               <tr className="text-[10px] text-slate-400 font-bold uppercase tracking-widest border-b border-slate-100">
-                <th className="px-6 py-3 w-10">#</th>
-                <th className="px-4 py-3">Vehículo</th>
-                <th className="px-4 py-3">Trámites Pendientes</th>
-                <th className="px-4 py-3 text-right">Acción</th>
+                <th className="hidden md:table-cell px-6 py-3 w-10">#</th>
+                <th className="px-3 md:px-4 py-3">Vehículo</th>
+                <th className="px-3 md:px-4 py-3">Vencimientos</th>
+                <th className="hidden md:table-cell px-4 py-3 text-right">Acción</th>
               </tr>
             </thead>
             <tbody className="text-sm">
@@ -147,7 +147,9 @@ export const AlertsList = ({ alerts, setSelectedVehicle, setIsEditing }: AlertsL
                 return (
                    <tr
                     key={group.vehicle.id}
-                    className={`transition-colors group border-b border-white ${
+                    // Tocar la fila abre la ficha (en el móvil no cabe el botón de la derecha).
+                    onClick={() => { setSelectedVehicle(group.vehicle); setIsEditing(false); }}
+                    className={`transition-colors group border-b border-white cursor-pointer ${
                       hasDanger ? 'bg-red-100' :
                       hasWarning ? 'bg-amber-100' :
                       hasRevisar ? 'bg-slate-100' :
@@ -155,18 +157,18 @@ export const AlertsList = ({ alerts, setSelectedVehicle, setIsEditing }: AlertsL
                       'bg-white'
                     }`}
                   >
-                    <td className="px-6 py-5 text-[10px] font-bold text-slate-400">{idx + 1}</td>
-                    <td className="px-4 py-5">
+                    <td className="hidden md:table-cell px-6 py-5 text-[10px] font-bold text-slate-400">{idx + 1}</td>
+                    <td className="px-3 md:px-4 py-4 md:py-5 align-top">
                       <div className="font-bold text-slate-900">{group.vehicle.matricula}</div>
                       <div className="text-[10px] text-slate-500 font-medium uppercase leading-tight">
                         {group.vehicle.marca} {group.vehicle.tipo}
                       </div>
                     </td>
-                    <td className="px-4 py-5">
+                    <td className="px-3 md:px-4 py-4 md:py-5">
                       <div className="space-y-3">
                         {group.alerts.map((al, aIdx) => (
                           <div key={aIdx} className="flex flex-wrap items-center gap-x-4 gap-y-1">
-                            <div className="min-w-[140px]">
+                            <div className="min-w-[120px]">
                               <span className="font-bold text-slate-700 block">{al.type}</span>
                               <span className="text-[10px] text-slate-500 font-medium">{al.date}</span>
                             </div>
@@ -188,9 +190,10 @@ export const AlertsList = ({ alerts, setSelectedVehicle, setIsEditing }: AlertsL
                         ))}
                       </div>
                     </td>
-                    <td className="px-6 py-5 text-right">
-                      <button 
-                        onClick={() => {
+                    <td className="hidden md:table-cell px-6 py-5 text-right">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
                           setSelectedVehicle(group.vehicle);
                           setIsEditing(true);
                         }}

@@ -16,7 +16,12 @@ export interface Vehicle {
   proximaITV: string;
   vencimientoATP: string;
   revisionTacografo: string;
+  // Fin del periodo en vigor de la póliza (dd/mm/aaaa). Desde el 25/11/2026: un seguro caducado es lo más caro que se
+  // puede pasar, y antes la app solo guardaba la compañía y el número.
+  vencimientoSeguro?: string;
   priority?: 'low' | 'medium' | 'high';
+  // Últimos cambios (los más nuevos primero, como mucho HISTORIAL_MAX): quién, cuándo y qué. Lo escriben la web y el bot.
+  historial?: Cambio[];
   createdAt?: Timestamp;
   // Citas ya sacadas y pendientes de llevar el vehículo (las pone el agente de Telegram al pulsar ✅)
   citas?: Partial<Record<ClaveTramite, Cita>>;
@@ -28,7 +33,15 @@ export interface Vehicle {
   bajaFecha?: string;   // dd/MM/yyyy
 }
 
+// Trámites que se llevan a un sitio con cita (ITV, ATP, tacógrafo). El seguro vence pero no tiene cita.
 export type ClaveTramite = 'itv' | 'atp' | 'tacografo';
+export type ClaveVencimiento = ClaveTramite | 'seguro';
+
+export interface Cambio {
+  cuando: string;  // ISO (new Date().toISOString()): dentro de una lista Firestore no admite serverTimestamp
+  por: string;     // «Web · correo» o «Telegram · nombre»
+  que: string;     // «Próxima ITV: 23/03/27 → 23/03/2028»
+}
 
 export interface Cita {
   fecha: string;   // dd/MM/yyyy
@@ -65,6 +78,6 @@ export interface Alert {
   type: string;
   date: string;
   status: AlertStatus;
-  clave?: ClaveTramite;
+  clave?: ClaveVencimiento;
   cita?: Cita;
 }

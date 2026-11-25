@@ -1,15 +1,47 @@
 import { differenceInCalendarDays } from 'date-fns';
-import { Vehicle, AlertStatus, ClaveTramite, Cita } from './types';
+import { Vehicle, AlertStatus, ClaveTramite, ClaveVencimiento, Cita, Cambio } from './types';
 // «.js» aunque sea .ts: este archivo también lo usan las funciones de Vercel (módulos ES de Node), y sin la extensión
 // no encuentran un import que no sea solo de tipos.
 import { documentosExigidos, type Categoria } from './documentos.js';
 
-// Los tres trámites con fecha de la flota: clave corta, nombre en pantalla y campo del vehículo.
+// Los tres trámites con fecha y cita de la flota: clave corta, nombre en pantalla y campo del vehículo.
+// Son los que se planifican, se piden con cita y se avisan 2 h antes.
 export const TRAMITES: { clave: ClaveTramite; label: string; campo: 'proximaITV' | 'vencimientoATP' | 'revisionTacografo' }[] = [
   { clave: 'itv', label: 'ITV Técnica', campo: 'proximaITV' },
   { clave: 'atp', label: 'Vencimiento ATP', campo: 'vencimientoATP' },
   { clave: 'tacografo', label: 'Revisión Tacógrafo', campo: 'revisionTacografo' },
 ];
+
+// Todo lo que VENCE y se vigila (alertas, correo, Telegram): los trámites y además el seguro, que no lleva cita.
+export type CampoVencimiento = 'proximaITV' | 'vencimientoATP' | 'revisionTacografo' | 'vencimientoSeguro';
+export const VENCIMIENTOS: { clave: ClaveVencimiento; label: string; campo: CampoVencimiento }[] = [
+  ...TRAMITES,
+  { clave: 'seguro', label: 'Seguro', campo: 'vencimientoSeguro' },
+];
+export const esTramiteConCita = (c: ClaveVencimiento): c is ClaveTramite => c !== 'seguro';
+
+// «9151 kwj», «9151-KWJ» → «9151KWJ». La misma regla en la web, el bot y los scripts: así no hay dos fichas iguales.
+export const normalizarMatricula = (m: unknown) => String(m ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+// ---------- Historial de cambios de cada vehículo ----------
+export const HISTORIAL_MAX = 15;
+export const nuevoCambio = (por: string, que: string): Cambio => ({ cuando: new Date().toISOString(), por, que: que.slice(0, 300) });
+// Lista para guardar: el cambio nuevo delante y como mucho HISTORIAL_MAX (la ficha no crece sin fin: cada lectura de
+// la flota la paga entera).
+export const conCambio = (historial: Cambio[] | undefined, c: Cambio): Cambio[] =>
+  [c, ...(Array.isArray(historial) ? historial : [])].slice(0, HISTORIAL_MAX);
+
+// ---------- Fechas del formulario (calendario del navegador: aaaa-mm-dd) ----------
+// Lo guardado (dd/mm/aaaa, o lo que se escribiera a mano) → valor del calendario. '' si no se entiende.
+export const aFechaInput = (s: unknown) => {
+  const d = parseEsDate(s);
+  return d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` : '';
+};
+// Valor del calendario → dd/mm/aaaa, como se guarda.
+export const deFechaInput = (iso: string) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '');
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : '';
+};
 
 // «Cita 02/12/2026 10:00 (Inca) – pendiente de llevar»
 export const textoCita = (c: Cita) =>
@@ -87,30 +119,40 @@ export const getMissingFields = (v: Vehicle) => {
   return missing;
 };
 
-// El papel que corresponde a cada trámite (para saber si a este vehículo le toca: ver documentosExigidos).
-const PAPEL: Record<ClaveTramite, Categoria> = { itv: 'ITV', atp: 'ATP', tacografo: 'Tacógrafo' };
+// El papel que corresponde a cada vencimiento (para saber si a este vehículo le toca: ver documentosExigidos).
+export const PAPEL: Record<ClaveVencimiento, Categoria> = { itv: 'ITV', atp: 'ATP', tacografo: 'Tacógrafo', seguro: 'Póliza' };
 
-export const getVehicleAlerts = (v: Vehicle) => {
-  const alerts: { label: string; status: 'danger' | 'warning' | 'success' | 'unknown'; text: string; date: string; clave: ClaveTramite; cita?: Cita }[] = [];
+export type AlertaVehiculo = {
+  label: string; status: 'danger' | 'warning' | 'success' | 'unknown'; text: string; date: string; clave: ClaveVencimiento; cita?: Cita;
+};
+
+export const getVehicleAlerts = (v: Vehicle): AlertaVehiculo[] => {
+  const alerts: AlertaVehiculo[] = [];
   const exigidos = documentosExigidos(v);
 
-  TRAMITES.forEach(t => {
+  VENCIMIENTOS.forEach(t => {
     const value = v[t.campo];
+    const cita = esTramiteConCita(t.clave) ? v.citas?.[t.clave] : undefined;
     if (noAplica(value)) return;   // «N/A», «no aplica»…: quien lo escribió dice que no le toca
     if (!value || !String(value).trim()) {
-      // Sin fecha: si el trámite le toca (la ITV siempre; ATP si lleva frío; tacógrafo si pasa de 3.500 kg) es un dato
+      // Sin fecha: si le toca (ITV y seguro siempre; ATP si lleva frío; tacógrafo si pasa de 3.500 kg) es un dato
       // que falta, no un vehículo «al día».
       if (exigidos.includes(PAPEL[t.clave])) {
-        alerts.push({ label: t.label, status: 'unknown', text: 'Falta la fecha', date: 'sin fecha', clave: t.clave, cita: v.citas?.[t.clave] });
+        alerts.push({ label: t.label, status: 'unknown', text: 'Falta la fecha', date: 'sin fecha', clave: t.clave, cita });
       }
       return;
     }
     const st = getAlertStatus(value, v.priority || 'medium');
-    alerts.push({ label: t.label, ...st, date: value, clave: t.clave, cita: v.citas?.[t.clave] });
+    alerts.push({ label: t.label, ...st, date: value, clave: t.clave, cita });
   });
 
   return alerts;
 };
+
+// Papeles que el vehículo TIENE guardados pero cuya fecha ya pasó (ITV, ATP, tacógrafo o póliza vencidos): «tener el
+// PDF» no es «estar en regla».
+export const papelesCaducados = (v: Vehicle): Categoria[] =>
+  getVehicleAlerts(v).filter(a => a.status === 'danger').map(a => PAPEL[a.clave]);
 
 // Lo que de verdad hay que mirar de un vehículo: para la insignia de la tarjeta y el contador del menú.
 // Lo que está «En regla» NO cuenta (antes la insignia contaba todas las fechas: «3 alertas» con todo bien).

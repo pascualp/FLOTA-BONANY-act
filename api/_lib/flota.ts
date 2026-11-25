@@ -3,7 +3,7 @@
 import { cert, getApps, initializeApp, type App } from 'firebase-admin/app';
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 // «.js» aunque sea .ts: en Vercel corren como módulos ES de Node y sin extensión no los encuentra.
-import { getAllAlerts, parseEsDate, TRAMITES } from '../../src/utils.js';
+import { getAllAlerts, normalizarMatricula, parseEsDate, TRAMITES } from '../../src/utils.js';
 import type { Alert, Vehicle } from '../../src/types.js';
 
 export const BASE_DE_DATOS = 'ai-studio-fleetflow-d05cc4cc-ab71-46f2-9a22-2419c0f125f8'; // = firestoreDatabaseId de firebase-applet-config.json
@@ -21,18 +21,27 @@ export function firebaseAdmin(): App {
 
 export const db = (): Firestore => getFirestore(firebaseAdmin(), BASE_DE_DATOS);
 
-export async function cargarFlota(): Promise<Vehicle[]> {
+// TODAS las fichas, también las que están fuera de la flota (campo «baja»): para no dar de alta una matrícula repetida.
+export async function cargarTodos(): Promise<Vehicle[]> {
   const snap = await db().collection('vehicles').get();
-  // Los dados de baja (campo «baja») no cuentan: ni en el reporte ni en el agente.
-  return (snap.docs.map((d) => ({ id: d.id, ...d.data() })) as Vehicle[]).filter((v) => !v.baja);
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() })) as Vehicle[];
 }
 
-// «9151 KWJ», «9151-kwj» → «9151KWJ»
-export const normalizarMatricula = (m: unknown) => String(m ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+export async function cargarFlota(): Promise<Vehicle[]> {
+  // Los dados de baja (campo «baja») no cuentan: ni en el reporte ni en el agente.
+  return (await cargarTodos()).filter((v) => !v.baja);
+}
+
+// «9151 KWJ», «9151-kwj» → «9151KWJ» (la regla está en src/utils.ts, la misma que usa la web).
+export { normalizarMatricula };
+
+export const buscarVehiculos = (flota: Vehicle[], matricula: unknown): Vehicle[] => {
+  const n = normalizarMatricula(matricula);
+  return n ? flota.filter((v) => normalizarMatricula(v.matricula) === n) : [];
+};
 
 export function buscarVehiculo(flota: Vehicle[], matricula: unknown): Vehicle | undefined {
-  const n = normalizarMatricula(matricula);
-  return n ? flota.find((v) => normalizarMatricula(v.matricula) === n) : undefined;
+  return buscarVehiculos(flota, matricula)[0];
 }
 
 // ---------- Fechas en hora de España ----------

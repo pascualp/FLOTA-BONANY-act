@@ -44,13 +44,17 @@ export async function leer(ruta: string): Promise<Buffer> {
   return datos;
 }
 
-// Tamaño del archivo subido, o null si no está.
-export async function tamano(ruta: string): Promise<number | null> {
+// Tamaño y tipo del archivo subido, o null si no está.
+export async function metadatos(ruta: string): Promise<{ size: number; tipo: string } | null> {
   const f = bucket().file(ruta);
   const [existe] = await f.exists();
   if (!existe) return null;
   const [meta] = await f.getMetadata();
-  return Number(meta.size);
+  return { size: Number(meta.size), tipo: String(meta.contentType || '') };
+}
+
+export async function tamano(ruta: string): Promise<number | null> {
+  return (await metadatos(ruta))?.size ?? null;
 }
 
 export async function borrar(ruta: string): Promise<void> {

@@ -2,14 +2,14 @@ import Anthropic from '@anthropic-ai/sdk';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { MsEdgeTTS, OUTPUT_FORMAT } from 'msedge-tts';
 import {
-  bajarArchivoTelegram, buscarVehiculo, cargarFlota, chatsPermitidos, db, enviarDocumentoTelegram, enviarTexto, enviarVoz,
-  escaparHtml as esc, hoyLargo, hoyTexto, normalizarMatricula, tg, TRAMITES, URL_APP,
+  bajarArchivoTelegram, buscarVehiculos, cargarFlota, cargarTodos, chatsPermitidos, db, enviarDocumentoTelegram, enviarTexto, enviarVoz,
+  escaparHtml as esc, hoyLargo, hoyTexto, normalizarMatricula, tg, URL_APP,
 } from './_lib/flota.js';
 import { AVISO_CUOTA, esCuotaAgotada, guardar, leer, rutaNueva } from './_lib/archivos.js';
-import { getVehicleAlerts, parseEsDate, textoCita } from '../src/utils.js';
-import { CATEGORIAS, categoriaDe, esCategoria, estadoDocumentacion, type DocResumen } from '../src/documentos.js';
+import { conCambio, getVehicleAlerts, nuevoCambio, parseEsDate, textoCita, VENCIMIENTOS } from '../src/utils.js';
+import { CATEGORIAS, categoriaDe, esCategoria, estadoDocumentacion, MAX_BYTES, TIPOS_ARCHIVO, type DocResumen } from '../src/documentos.js';
 import { diasOcupados, planificar, tareasPendientes, textoPlan } from '../src/planificador.js';
-import type { ClaveTramite, Vehicle } from '../src/types.js';
+import type { ClaveTramite, ClaveVencimiento, Vehicle } from '../src/types.js';
 
 // Agente «Flotas Bonany» en Telegram (/api/telegram, webhook del bot).
 // Lo usan Facu y Jordi (grupo + privados: lista TELEGRAM_CHATS, estar en el grupo, o alta con ✅ desde el grupo).
@@ -48,6 +48,7 @@ Qué puedes hacer con tus herramientas:
 - Planificar revisiones: planificar_revisiones reparte las ITV, ATP y tacógrafos pendientes (como mucho un vehículo al día, de lunes a viernes por la tarde, primero lo vencido). Úsalo si preguntan qué toca llevar, cuándo, o piden organizar las citas. Es una PROPUESTA: la cita de verdad hay que pedirla.
 - Apuntar una cita YA SACADA (ITV, ATP o tacógrafo): proponer_cita. «Hemos sacado / pedido / tenemos cita de la ITV» significa cita sacada y pendiente de llevar el vehículo.
 - Cuando el trámite ya se ha hecho («ya pasó la ITV», «la hemos pasado»): proponer_nueva_fecha con la fecha del PRÓXIMO vencimiento. Esto también quita la cita. Si no te dan la fecha nueva, pregúntala; no la inventes. Si mandan la tarjeta o el informe de la ITV, léela de ahí.
+- Seguro: cada vehículo tiene la fecha en que VENCE su póliza (vencimiento «seguro»). Si renuevan el seguro o mandan la póliza, propón la fecha nueva con proponer_nueva_fecha (vencimiento «seguro»), leída del papel.
 - Anular una cita: proponer_quitar_cita. Cambiar un dato (chófer, aseguradora, póliza…): proponer_cambio. Dar de alta un vehículo: proponer_alta_vehiculo.
 - Guardar la foto o el PDF que viene en el mensaje en los documentos de un vehículo: proponer_guardar_archivo, diciendo SIEMPRE de qué tipo es (categoria): Permiso de circulación, Ficha técnica (también la «tarjeta ITV»), Póliza, ITV (informe de inspección), ATP, Tacógrafo, Carga y descarga, Tarjeta de transporte u Otro.
 
@@ -61,6 +62,7 @@ Reglas:
 - Si el mensaje llega POR AUDIO (va marcado), es una transcripción automática: las matrículas y los nombres pueden venir mal oídos («nueve uno cinco uno ka uve jota», números sueltos…); búscalas en la flota y, si dudas, pregunta. Tu respuesta se leerá también en voz alta: sé más breve (2-4 frases), sin listas largas; si hay muchos vehículos, di cuántos son y los más urgentes.`;
 
 const tramite = { type: 'string', enum: ['itv', 'atp', 'tacografo'], description: 'itv = ITV Técnica, atp = Vencimiento ATP, tacografo = Revisión Tacógrafo' };
+const vencimiento = { type: 'string', enum: ['itv', 'atp', 'tacografo', 'seguro'], description: 'itv = ITV Técnica, atp = Vencimiento ATP, tacografo = Revisión Tacógrafo, seguro = vencimiento de la póliza' };
 const matricula = { type: 'string', description: 'Matrícula del vehículo, tal como está en la flota' };
 const fecha = { type: 'string', description: 'Fecha dd/mm/aaaa' };
 
@@ -69,9 +71,9 @@ const HERRAMIENTAS: Anthropic.Beta.Messages.BetaToolUnion[] = [
   { name: 'ver_vehiculo', description: 'Todos los datos de un vehículo y la lista de sus documentos guardados.', input_schema: { type: 'object', properties: { matricula }, required: ['matricula'] } },
   { name: 'proponer_cita', description: 'Propone apuntar una cita ya sacada (pendiente de llevar el vehículo). Manda un botón ✅ para confirmar.', input_schema: { type: 'object', properties: { matricula, tramite, fecha, hora: { type: 'string', description: 'HH:MM, si la saben' }, lugar: { type: 'string', description: 'Estación o taller, si lo saben' }, notas: { type: 'string' } }, required: ['matricula', 'tramite', 'fecha'] } },
   { name: 'proponer_quitar_cita', description: 'Propone anular una cita apuntada. Botón ✅ para confirmar.', input_schema: { type: 'object', properties: { matricula, tramite }, required: ['matricula', 'tramite'] } },
-  { name: 'proponer_nueva_fecha', description: 'El trámite ya se hizo: propone poner la fecha del PRÓXIMO vencimiento (y quitar la cita). Botón ✅ para confirmar.', input_schema: { type: 'object', properties: { matricula, tramite, fecha }, required: ['matricula', 'tramite', 'fecha'] } },
+  { name: 'proponer_nueva_fecha', description: 'El trámite ya se hizo (o se renovó el seguro): propone poner la fecha del PRÓXIMO vencimiento (y quitar la cita, si la había). Botón ✅ para confirmar.', input_schema: { type: 'object', properties: { matricula, tramite: vencimiento, fecha }, required: ['matricula', 'tramite', 'fecha'] } },
   { name: 'proponer_cambio', description: 'Propone cambiar un dato del vehículo. Botón ✅ para confirmar.', input_schema: { type: 'object', properties: { matricula, campo: { type: 'string', enum: [...CAMPOS_EDITABLES] }, valor: { type: 'string' } }, required: ['matricula', 'campo', 'valor'] } },
-  { name: 'proponer_alta_vehiculo', description: 'Propone dar de alta un vehículo nuevo. Botón ✅ para confirmar.', input_schema: { type: 'object', properties: { matricula, marca: { type: 'string' }, tipo: { type: 'string', description: 'CAMIÓN, FURGONETA, COCHE…' }, chofer: { type: 'string' }, tipoCaja: { type: 'string' }, capacidad: { type: 'string' }, bastidor: { type: 'string' }, fechaMatriculacion: fecha, proximaITV: fecha, vencimientoATP: fecha, revisionTacografo: fecha, aseguradora: { type: 'string' }, poliza: { type: 'string' } }, required: ['matricula', 'marca', 'tipo'] } },
+  { name: 'proponer_alta_vehiculo', description: 'Propone dar de alta un vehículo nuevo. Botón ✅ para confirmar.', input_schema: { type: 'object', properties: { matricula, marca: { type: 'string' }, tipo: { type: 'string', description: 'CAMIÓN, FURGONETA, COCHE…' }, chofer: { type: 'string' }, tipoCaja: { type: 'string' }, capacidad: { type: 'string' }, bastidor: { type: 'string' }, fechaMatriculacion: fecha, proximaITV: fecha, vencimientoATP: fecha, revisionTacografo: fecha, vencimientoSeguro: fecha, aseguradora: { type: 'string' }, poliza: { type: 'string' } }, required: ['matricula', 'marca', 'tipo'] } },
   { name: 'proponer_guardar_archivo', description: 'Propone guardar la foto o el PDF que viene en ESTE mensaje en los documentos del vehículo. Botón ✅ para confirmar.', input_schema: { type: 'object', properties: { matricula, nombre: { type: 'string', description: 'Nombre corto del documento, p. ej. «Tarjeta ITV 2026»' }, categoria: { type: 'string', enum: [...CATEGORIAS], description: 'Tipo de documento' } }, required: ['matricula', 'nombre', 'categoria'] } },
   { name: 'ver_documentacion', description: 'Qué papeles le faltan a cada vehículo (permiso, ficha técnica, póliza, ITV; ATP si es frigorífico o isotermo; tacógrafo si pasa de 3.500 kg). Con matrícula: el detalle de ese vehículo y sus documentos. Sin matrícula: toda la flota.', input_schema: { type: 'object', properties: { matricula: { ...matricula, description: 'Opcional: solo este vehículo' } } } },
   { name: 'enviar_documento', description: `Manda por este chat documentos guardados de un vehículo (como mucho ${MAX_ENVIAR}). Filtra por tipo (categoria) o por parte del nombre.`, input_schema: { type: 'object', properties: { matricula, categoria: { type: 'string', enum: [...CATEGORIAS] }, nombre: { type: 'string', description: 'Parte del nombre del archivo, si lo saben' } }, required: ['matricula'] } },
@@ -83,8 +85,10 @@ export interface Ctx { chatId: number; quien: string; adjunto?: Adjunto; flota?:
 
 // ---------- Validaciones ----------
 const esFecha = (s: unknown) => typeof s === 'string' && /^\d{2}\/\d{2}\/\d{4}$/.test(s) && !!parseEsDate(s);
-const esHora = (s: unknown) => typeof s === 'string' && /^\d{1,2}:\d{2}$/.test(s);
+// 00:00 a 23:59 (antes valía «25:99», y entonces el aviso de 2 horas antes no salía nunca).
+const esHora = (s: unknown) => typeof s === 'string' && /^([01]?\d|2[0-3]):[0-5]\d$/.test(s);
 const esTramite = (s: unknown): s is ClaveTramite => s === 'itv' || s === 'atp' || s === 'tacografo';
+const esVencimiento = (s: unknown): s is ClaveVencimiento => esTramite(s) || s === 'seguro';
 const textoLimpio = (s: unknown) => (typeof s === 'string' ? s.trim().slice(0, 200) : '');
 
 async function flotaDe(ctx: Ctx) {
@@ -93,9 +97,21 @@ async function flotaDe(ctx: Ctx) {
 }
 
 async function vehiculoDe(ctx: Ctx, m: unknown): Promise<Vehicle> {
-  const v = buscarVehiculo(await flotaDe(ctx), m);
-  if (!v) throw new Error(`No encuentro la matrícula «${m}» en la flota. Usa ver_flota para buscarla.`);
-  return v;
+  const vs = buscarVehiculos(await flotaDe(ctx), m);
+  if (!vs.length) throw new Error(`No encuentro la matrícula «${m}» en la flota. Usa ver_flota para buscarla.`);
+  // Dos fichas con la misma matrícula: no se elige una al azar (el cambio podría ir a la que no es).
+  if (vs.length > 1) throw new Error(`La matrícula ${vs[0].matricula} tiene ${vs.length} fichas repetidas en la flota: hay que dejar una sola en la web (${URL_APP}) antes de cambiar nada.`);
+  return vs[0];
+}
+
+// Si ya existe una ficha con esa matrícula, dentro O FUERA de la flota, el porqué (para no crear otra igual).
+async function yaExiste(m: string): Promise<string | null> {
+  const iguales = buscarVehiculos(await cargarTodos(), m);
+  if (!iguales.length) return null;
+  const fuera = iguales.find((v) => v.baja);
+  return fuera && iguales.length === 1
+    ? `${m} ya tiene ficha, pero está FUERA de la flota (${fuera.bajaMotivo || 'sin motivo'}${fuera.bajaFecha ? ', desde ' + fuera.bajaFecha : ''}). Para recuperarla: en la web, Vehículos → Fuera de la flota → «Volver a la flota».`
+    : `${m} ya está en la flota.`;
 }
 
 // Fichas de los documentos de un vehículo (solo campos pequeños: el archivo está en el almacén o, si es viejo, en /chunks).
@@ -208,11 +224,15 @@ async function ejecutar(ctx: Ctx, nombre: string, e: any): Promise<string> {
     }
     case 'proponer_nueva_fecha': {
       const v = await vehiculoDe(ctx, e.matricula);
-      if (!esTramite(e.tramite)) throw new Error('Trámite no válido: itv, atp o tacografo');
+      if (!esVencimiento(e.tramite)) throw new Error('Vencimiento no válido: itv, atp, tacografo o seguro');
       if (!esFecha(e.fecha)) throw new Error('La fecha tiene que ser dd/mm/aaaa');
-      const t = TRAMITES.find((x) => x.clave === e.tramite)!;
-      return proponer(ctx, 'nueva_fecha', { vehicleId: v.id, matricula: v.matricula, clave: t.clave, campo: t.campo, fecha: e.fecha },
-        `${v.matricula}: ${t.label} hecha → próximo vencimiento ${e.fecha} (antes ${v[t.campo] || 'sin fecha'})${v.citas?.[t.clave] ? ' y se quita la cita' : ''}`);
+      const t = VENCIMIENTOS.find((x) => x.clave === e.tramite)!;
+      const tieneCita = t.clave !== 'seguro' && !!v.citas?.[t.clave];
+      const antes = v[t.campo] || 'sin fecha';
+      return proponer(ctx, 'nueva_fecha', { vehicleId: v.id, matricula: v.matricula, clave: t.clave, campo: t.campo, fecha: e.fecha, antes, label: t.label },
+        t.clave === 'seguro'
+          ? `${v.matricula}: el seguro vence el ${e.fecha} (antes ${antes})`
+          : `${v.matricula}: ${t.label} hecha → próximo vencimiento ${e.fecha} (antes ${antes})${tieneCita ? ' y se quita la cita' : ''}`);
     }
     case 'proponer_cambio': {
       const v = await vehiculoDe(ctx, e.matricula);
@@ -224,11 +244,12 @@ async function ejecutar(ctx: Ctx, nombre: string, e: any): Promise<string> {
     case 'proponer_alta_vehiculo': {
       const m = normalizarMatricula(e.matricula);
       if (m.length < 4) throw new Error('Matrícula no válida');
-      if (buscarVehiculo(await flotaDe(ctx), m)) throw new Error(`${m} ya está en la flota`);
-      for (const f of ['fechaMatriculacion', 'proximaITV', 'vencimientoATP', 'revisionTacografo']) {
+      const repetida = await yaExiste(m);
+      if (repetida) throw new Error(repetida);
+      for (const f of ['fechaMatriculacion', 'proximaITV', 'vencimientoATP', 'revisionTacografo', 'vencimientoSeguro']) {
         if (e[f] && !esFecha(e[f])) throw new Error(`${f} tiene que ser dd/mm/aaaa`);
       }
-      const campos = ['marca', 'tipo', 'tipoCaja', 'capacidad', 'fechaMatriculacion', 'bastidor', 'chofer', 'aseguradora', 'poliza', 'proximaITV', 'vencimientoATP', 'revisionTacografo'];
+      const campos = ['marca', 'tipo', 'tipoCaja', 'capacidad', 'fechaMatriculacion', 'bastidor', 'chofer', 'aseguradora', 'poliza', 'proximaITV', 'vencimientoATP', 'revisionTacografo', 'vencimientoSeguro'];
       const vehiculo: Record<string, string> = { matricula: m };
       for (const c of campos) vehiculo[c] = textoLimpio(e[c]);
       return proponer(ctx, 'alta', { vehiculo }, `Alta de ${m}: ${vehiculo.marca} ${vehiculo.tipo}${vehiculo.chofer ? ', chófer ' + vehiculo.chofer : ''}`);
@@ -251,31 +272,46 @@ async function ejecutar(ctx: Ctx, nombre: string, e: any): Promise<string> {
 async function aplicar(p: any, quien: string) {
   const d = p.datos;
   const veh = d.vehicleId ? db().collection('vehicles').doc(d.vehicleId) : null;
-  if (veh && !(await veh.get()).exists) throw new Error(`El vehículo ${d.matricula} ya no existe`);
+  const actual = veh ? await veh.get() : null;
+  if (veh && !actual!.exists) throw new Error(`El vehículo ${d.matricula} ya no existe`);
+  // Cada cambio queda en el historial del vehículo (quién, cuándo, qué), igual que los de la web.
+  const historial = (que: string) => conCambio(actual!.get('historial'), nuevoCambio(`Telegram · ${quien}`, que));
   switch (p.tipo) {
     case 'cita':
-      await veh!.update({ [`citas.${d.clave}`]: { ...d.cita, confirmadoPor: quien, el: FieldValue.serverTimestamp() } });
+      await veh!.update({
+        [`citas.${d.clave}`]: { ...d.cita, confirmadoPor: quien, el: FieldValue.serverTimestamp() },
+        historial: historial(`Cita de ${NOMBRE_TRAMITE[d.clave as ClaveTramite] || d.clave}: ${d.cita.fecha}${d.cita.hora ? ' ' + d.cita.hora : ''}${d.cita.lugar ? ' (' + d.cita.lugar + ')' : ''}`),
+      });
       return;
     case 'quitar_cita':
-      await veh!.update({ [`citas.${d.clave}`]: FieldValue.delete() });
+      await veh!.update({ [`citas.${d.clave}`]: FieldValue.delete(), historial: historial(`Quitada la cita de ${NOMBRE_TRAMITE[d.clave as ClaveTramite] || d.clave}`) });
       return;
-    case 'nueva_fecha':
-      await veh!.update({ [d.campo]: d.fecha, [`citas.${d.clave}`]: FieldValue.delete() });
+    case 'nueva_fecha': {
+      const cambios: Record<string, unknown> = { [d.campo]: d.fecha, historial: historial(`${d.label || d.campo}: ${d.antes || '—'} → ${d.fecha}`) };
+      if (d.clave !== 'seguro') cambios[`citas.${d.clave}`] = FieldValue.delete();   // el trámite se hizo: fuera la cita
+      await veh!.update(cambios);
       return;
+    }
     case 'cambio':
-      await veh!.update({ [d.campo]: d.valor });
+      await veh!.update({ [d.campo]: d.valor, historial: historial(`${d.campo}: ${(actual!.get(d.campo) as string) || '—'} → ${d.valor}`) });
       return;
     case 'alta': {
-      const yaEsta = (await cargarFlota()).some((v) => normalizarMatricula(v.matricula) === d.vehiculo.matricula);
-      if (yaEsta) throw new Error(`${d.vehiculo.matricula} ya está en la flota`);
-      await db().collection('vehicles').add({ ...d.vehiculo, priority: 'medium', createdAt: FieldValue.serverTimestamp() });
+      // Se vuelve a mirar al confirmar (pudo darse de alta por la web entretanto), también entre los de fuera de la flota.
+      const repetida = await yaExiste(d.vehiculo.matricula);
+      if (repetida) throw new Error(repetida);
+      await db().collection('vehicles').add({
+        ...d.vehiculo, priority: 'medium', createdAt: FieldValue.serverTimestamp(),
+        historial: [nuevoCambio(`Telegram · ${quien}`, 'Alta del vehículo')],
+      });
       return;
     }
     case 'archivo': {
       // 25/11/2026: el archivo va a Google Cloud Storage y en Firestore solo su ficha (antes iba troceado en la base,
       // y los archivos agotaron su cuota diaria). Primero el archivo y luego la ficha: si algo falla a medias, no queda
       // una ficha que apunte a nada.
+      if (!TIPOS_ARCHIVO.includes(d.mime)) throw new Error(`Ese tipo de archivo (${d.mime}) no se guarda: solo PDF o fotos`);
       const { datos } = await bajarArchivoTelegram(d.fileId);
+      if (datos.length > MAX_BYTES) throw new Error('El archivo pesa más de 25 MB');
       const ruta = rutaNueva(d.vehicleId, d.nombre);
       await guardar(ruta, datos, d.mime);
       await db().collection('documents').add({
@@ -500,7 +536,14 @@ async function atenderBoton(cq: any) {
   if (p.estado !== 'pendiente') return contestar(p.estado === 'hecha' ? 'Ya estaba guardado' : 'Ya estaba cancelado');
 
   if (accion === 'no') {
-    await ref.update({ estado: 'cancelada', decididoPor: quien, decidido: FieldValue.serverTimestamp() });
+    // En una transacción: si justo otro pulsó ✅ y se está guardando, el ❌ no lo pisa.
+    const cancelado = await db().runTransaction(async (t) => {
+      const s = await t.get(ref);
+      if (s.get('estado') !== 'pendiente') return false;
+      t.update(ref, { estado: 'cancelada', decididoPor: quien, decidido: FieldValue.serverTimestamp() });
+      return true;
+    });
+    if (!cancelado) return contestar('Ya estaba en marcha');
     await editar(`❌ <s>${esc(p.resumen)}</s>\nCancelado por ${esc(quien)}`);
     return contestar('Cancelado');
   }
@@ -525,7 +568,12 @@ async function atenderBoton(cq: any) {
     return contestar('Guardado');
   } catch (err: any) {
     await ref.update({ estado: 'pendiente', error: String(err?.message || err) });
-    await editar(`⚠️ ${esc(p.resumen)}\nNo se pudo guardar: ${esc(err?.message || err)}`);
+    // Se vuelven a poner los botones: la propuesta sigue pendiente y se puede reintentar (antes desaparecían).
+    await tg('editMessageText', {
+      chat_id: chatId, message_id: cq.message.message_id, parse_mode: 'HTML',
+      text: `⚠️ ${esc(p.resumen)}\nNo se pudo guardar: ${esc(err?.message || err)}`,
+      reply_markup: { inline_keyboard: [[{ text: '🔁 Reintentar', callback_data: `ok:${id}` }, { text: '❌ No', callback_data: `no:${id}` }]] },
+    }).catch(() => {});
     return contestar('Error al guardar');
   }
 }

@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { Car, FileSearch, ArchiveX, CheckCircle2, FileWarning } from 'lucide-react';
 import { Vehicle, VehicleDocument } from '../types';
 import { estadoDocumentacion } from '../documentos';
-import { getVehicleAlerts, problemasDe, TRAMITES } from '../utils';
+import { getVehicleAlerts, papelesCaducados, problemasDe, VENCIMIENTOS } from '../utils';
 
 interface VehicleListProps {
   vehicles: Vehicle[];                                // la flota que SÍ tenemos
@@ -36,7 +36,7 @@ export const VehicleList = ({ vehicles, fuera, docsPorVehiculo, searchQuery, set
   const deFuera = fuera.filter(v => coincide(v, term));
 
   return (
-    <div className="flex-1 bg-white rounded-3xl border border-slate-200 overflow-hidden flex flex-col">
+    <div className="flex-1 min-w-0 bg-white rounded-3xl border border-slate-200 overflow-hidden flex flex-col">
       <div className="p-6 border-b border-slate-100 flex justify-between items-center flex-wrap gap-4">
         <div>
           <h4 className="font-bold text-slate-800">En la flota ({vehicles.length})</h4>
@@ -75,6 +75,8 @@ export const VehicleList = ({ vehicles, fuera, docsPorVehiculo, searchQuery, set
               const p = problemasDe(v);
               const fechas = getVehicleAlerts(v);
               const e = estado(v);
+              // Papeles que tiene pero cuya fecha ya pasó: «tener el PDF» no es estar en regla.
+              const vencidos = papelesCaducados(v).filter(c => e.exigidos.some(x => x.categoria === c && x.docs.length));
               return (
                 <div
                   key={v.id}
@@ -97,19 +99,18 @@ export const VehicleList = ({ vehicles, fuera, docsPorVehiculo, searchQuery, set
                     <Car className="w-5 h-5 text-blue-400 shrink-0" />
                   </div>
                   <div className="space-y-1 mt-3 text-xs">
-                    {TRAMITES.map(t => {
+                    {VENCIMIENTOS.map(t => {
                       const f = fechas.find(a => a.clave === t.clave);
                       return (
                         <div key={t.clave} className="flex justify-between gap-2">
-                          <span className="text-slate-500">{t.label}:</span>
-                          <span className={f ? (f.cita ? 'text-blue-700 font-bold' : COLOR_FECHA[f.status]) : 'text-slate-300'}
+                          <span className="text-slate-500 truncate">{t.clave === 'seguro' ? `Seguro${v.aseguradora ? ' · ' + v.aseguradora : ''}` : t.label}:</span>
+                          <span className={`whitespace-nowrap ${f ? (f.cita ? 'text-blue-700 font-bold' : COLOR_FECHA[f.status]) : 'text-slate-300'}`}
                             title={f ? (f.cita ? `Cita ${f.cita.fecha}` : f.text) : 'Sin fecha'}>
-                            {f ? `${f.date}${f.status === 'unknown' ? ' (?)' : ''}` : '—'}
+                            {!f ? '—' : f.text === 'Falta la fecha' ? 'falta' : `${f.cita ? '📅 ' : ''}${f.date}${f.status === 'unknown' ? ' (?)' : ''}`}
                           </span>
                         </div>
                       );
                     })}
-                    <div className="flex justify-between"><span className="text-slate-500">Seguro:</span> <span className="font-medium">{v.aseguradora || '—'}</span></div>
                     <div className="pt-2 mt-1 border-t border-slate-50">
                       <div className="flex justify-between items-center">
                         <span className="text-slate-500">Documentación:</span>
@@ -120,6 +121,7 @@ export const VehicleList = ({ vehicles, fuera, docsPorVehiculo, searchQuery, set
                         )}
                       </div>
                       {e.faltan.length > 0 && <p className="text-[11px] text-red-500 mt-1">Falta: {e.faltan.join(', ')}</p>}
+                      {vencidos.length > 0 && <p className="text-[11px] text-amber-700 mt-1">⚠ Papel vencido: {vencidos.join(', ')}</p>}
                     </div>
                   </div>
                 </div>
