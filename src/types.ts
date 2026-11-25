@@ -49,8 +49,9 @@ export interface Reparacion {
   importe?: number;       // euros, lo que pone la factura (IVA incluido)
   km?: number;
   factura?: string;       // nº de factura
+  notas?: string;         // lo que avise el taller, p. ej. «pastillas delanteras para cambiar»
   documentoId?: string;   // la foto o el PDF de la factura (colección documents, categoría «Factura de taller»)
-  origen?: 'web' | 'telegram' | 'winclass';
+  origen?: 'web' | 'telegram' | 'winclass' | 'escaneo';   // escaneo = facturas escaneadas en la oficina e importadas
   ref?: string;           // clave en el sistema de origen (Winclass): para no importar dos veces lo mismo
   creadoPor?: string;
   creado?: Timestamp;

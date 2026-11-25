@@ -154,9 +154,10 @@ export const ReparacionesVehiculo = ({ vehiculo, demo }: { vehiculo: Vehicle; de
             <li key={r.id} className="p-3 rounded-xl border border-slate-100 flex justify-between gap-3 flex-wrap">
               <div className="min-w-0 text-sm">
                 <p className="font-bold text-slate-700">{r.que}</p>
+                {r.notas && <p className="text-xs text-amber-700">⚠ {r.notas}</p>}
                 <p className="text-xs text-slate-500">
                   {r.fecha}{r.taller ? ` · ${r.taller}` : ''}{r.km ? ` · ${r.km.toLocaleString('es-ES')} km` : ''}{r.factura ? ` · factura ${r.factura}` : ''}
-                  {r.origen && r.origen !== 'web' ? ` · ${r.origen === 'winclass' ? 'de Winclass' : 'por Telegram'}` : ''}
+                  {r.origen && r.origen !== 'web' ? ` · ${{ winclass: 'de Winclass', telegram: 'por Telegram', escaneo: 'factura escaneada' }[r.origen]}` : ''}
                 </p>
               </div>
               <div className="flex items-center gap-2 shrink-0">
