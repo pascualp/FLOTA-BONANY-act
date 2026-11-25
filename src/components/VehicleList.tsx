@@ -11,12 +11,10 @@ interface VehicleListProps {
   setSelectedVehicle: (vehicle: Vehicle) => void;
 }
 
+// String(): en la base hay fichas con campos vacíos o que no son texto; así el buscador no se rompe con ninguna.
 const coincide = (v: Vehicle, term: string) =>
   !term ||
-  v.matricula?.toLowerCase().includes(term) ||
-  v.marca?.toLowerCase().includes(term) ||
-  v.bastidor?.toLowerCase().includes(term) ||
-  v.chofer?.toLowerCase().includes(term);
+  [v.matricula, v.marca, v.bastidor, v.chofer].some(x => String(x ?? '').toLowerCase().includes(term));
 
 const Documentos = ({ n }: { n: number }) =>
   n > 0 ? (
