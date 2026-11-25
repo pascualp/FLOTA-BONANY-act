@@ -10,6 +10,7 @@ import { guardarCambios } from '../lib/guardarVehiculo';
 import { FichaFormulario } from './FichaFormulario';
 import { CitasVehiculo } from './CitasVehiculo';
 import { DocumentosVehiculo } from './DocumentosVehiculo';
+import { ReparacionesVehiculo } from './ReparacionesVehiculo';
 
 interface VehicleModalProps {
   selectedVehicle: Vehicle;
@@ -150,6 +151,7 @@ export const VehicleModal = ({ selectedVehicle: v, setSelectedVehicle, isEditing
 
         {!isEditing && <CitasVehiculo vehiculo={v} />}
         <DocumentosVehiculo vehiculo={v} documentos={vehicleDocuments} />
+        {!isEditing && <ReparacionesVehiculo vehiculo={v} demo={import.meta.env.DEV && new URLSearchParams(window.location.search).has('demo')} />}
 
         {/* Quién cambió qué y cuándo (desde el 25/11/2026; lo de antes no quedó apuntado). */}
         <div className="mt-8 border-t border-slate-100 pt-6">

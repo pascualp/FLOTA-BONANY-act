@@ -11,6 +11,7 @@ export const CATEGORIAS = [
   'Tacógrafo',
   'Carga y descarga',
   'Tarjeta de transporte',
+  'Factura de taller',   // 25/11/2026: las facturas de las reparaciones (ver src/reparaciones.ts)
   'Otro',
 ] as const;
 export type Categoria = (typeof CATEGORIAS)[number];
@@ -55,6 +56,7 @@ const POR_NOMBRE: [RegExp, Categoria][] = [
   [/\bATP\b|ATP_|_ATP/, 'ATP'],
   [/CARGA Y DESCARGA|CARREGA/, 'Carga y descarga'],
   [/TARJETA (DE )?TRANSPORTE|TARGETA TRANSPORT/, 'Tarjeta de transporte'],
+  [/FACTURA|\bFRA\b|REPARACI|TALLER/, 'Factura de taller'],
   [/\bITV\b|ITV_|_ITV|INSPECCI/, 'ITV'],
 ];
 

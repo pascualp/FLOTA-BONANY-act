@@ -1,0 +1,30 @@
+{
+  "_que": "Datos sacados de los papeles del servidor (\\\\servidor\\datos\\Documentos\\FLOTA\\ACTUAL) por dos lectores el 25/11/2026. 'seguro' = el papel enseña el periodo en vigor hoy; 'supuesto' = papel antiguo de una póliza anual que se prorroga sola: se pone la próxima renovación (la app avisará 30 días antes, para comprobarlo).",
+  "cambios": {
+    "0313HBK": { "confianza": "seguro", "vencimientoSeguro": "03/02/2027", "motivo": "Póliza Generali UY-G-310.005.379 (papel 04/02/2026), vence cada 03/02" },
+    "2187KRC": { "confianza": "seguro", "aseguradora": "ALLIANZ", "poliza": "060046509 00004", "vencimientoSeguro": "31/07/2027", "motivo": "Póliza Allianz del VW, en vigor hasta 31/07/2027 (la app no tenía compañía)" },
+    "2218KKT": { "confianza": "seguro", "aseguradora": "GENERALI", "poliza": "UY-G-310.005.832", "vencimientoSeguro": "08/05/2027", "motivo": "Ahora es Generali (antes AXA, luego FIATC 2023-24)" },
+    "3161JJW": { "confianza": "seguro", "vencimientoSeguro": "23/03/2027", "motivo": "Póliza Generali 24/03/2026 a 23/03/2027" },
+    "5875NDS": { "confianza": "seguro", "aseguradora": "ALLIANZ", "poliza": "060046509 00001", "vencimientoSeguro": "31/07/2027", "motivo": "Allianz desde 24/07/2026, renueva el 01/08 (en la app ponía 'ALIAZA')" },
+    "7525LTS": { "confianza": "seguro", "aseguradora": "FIATC", "poliza": "20-7.322.539", "vencimientoSeguro": "17/11/2027", "proximaITV": "30/12/2027", "motivo": "Desde 17/11/2024 es FIATC (la app tenía la Mapfre vieja); ITV FAVORABLE el 30/12/2025, válida hasta 30/12/2027" },
+    "7695LXK": { "confianza": "seguro", "aseguradora": "ALLIANZ", "poliza": "057439986", "vencimientoSeguro": "31/07/2027", "motivo": "Póliza Allianz de 22/07/2025, se prorroga cada 01/08 (la app no tenía compañía)" },
+    "8855JCY": { "confianza": "seguro", "aseguradora": "GENERALI", "poliza": "UY-G-310.005.831", "vencimientoSeguro": "11/05/2027", "motivo": "Generali del 12/05/2026 al 11/05/2027 (sustituye a FIATC; la app no tenía compañía)" },
+    "9151KWJ": { "confianza": "seguro", "aseguradora": "GENERALI", "poliza": "UY-G-310.004.912", "vencimientoSeguro": "31/12/2026", "motivo": "Generali 01/01/2026 a 31/12/2026 (la app decía Allianz 54718318)" },
+
+    "1111KDV": { "confianza": "supuesto", "vencimientoSeguro": "25/05/2027", "motivo": "FIATC 20-6.951.871, papel de 2021, vence cada 25/05" },
+    "1415LVM": { "confianza": "supuesto", "vencimientoSeguro": "31/05/2027", "motivo": "Allianz 050391523, papel de 2022, vence cada 31/05" },
+    "1768JYC": { "confianza": "supuesto", "vencimientoSeguro": "30/04/2027", "motivo": "Allianz 055374470, papel de 2024, se prorroga cada 30/04" },
+    "1886HTY": { "confianza": "supuesto", "aseguradora": "GENERALI", "poliza": "UV-G-310.034.562", "vencimientoSeguro": "04/09/2027", "motivo": "Generali de Bon Any, vencía 04/09/2026 y se prorroga (la Allianz 49174416 de la app no está en el servidor)" },
+    "3956FDZ": { "confianza": "supuesto", "vencimientoSeguro": "31/12/2026", "motivo": "Allianz 039491436, papel de 2016, vence cada 31/12" },
+    "4666HWY": { "confianza": "supuesto", "vencimientoSeguro": "30/04/2027", "motivo": "Allianz 041394169, papel de 2017, se renueva cada 30/04" },
+    "5254JWZ": { "confianza": "supuesto", "vencimientoSeguro": "31/12/2026", "motivo": "Allianz 056436930, vence cada 31/12" },
+    "5331KLB": { "confianza": "supuesto", "aseguradora": "FIATC", "poliza": "20-7.158.634", "vencimientoSeguro": "23/05/2027", "motivo": "La AXA de la app se anuló el 23/05/2023; la sustituyó FIATC, vence cada 23/05" },
+    "5389JGM": { "confianza": "supuesto", "vencimientoSeguro": "30/04/2027", "motivo": "Allianz 053475756, renovación automática cada 30/04" },
+    "5849HDH": { "confianza": "supuesto", "vencimientoSeguro": "31/05/2027", "motivo": "Allianz 039491405, papel de 2016, vence cada 31/05" },
+    "5925MBD": { "confianza": "supuesto", "poliza": "UY-G-346.004.391", "vencimientoSeguro": "21/09/2027", "motivo": "Generali, vence cada 21/09 (en la app el número estaba mal escrito: GUY346004391)" },
+    "6221LJM": { "confianza": "supuesto", "vencimientoSeguro": "17/05/2027", "motivo": "FIATC 20-6.949.468, vence cada 17/05" },
+    "6830MFW": { "confianza": "supuesto", "vencimientoSeguro": "03/04/2027", "motivo": "FIATC 20-7.154.777, vence cada 03/04" },
+    "8031MHJ": { "confianza": "supuesto", "vencimientoSeguro": "09/06/2027", "motivo": "FIATC 20-7.175.008, vence cada 09/06" },
+    "9785MSD": { "confianza": "supuesto", "vencimientoSeguro": "18/06/2027", "motivo": "FIATC 0020-9005014-3, vence cada 18/06" }
+  }
+}

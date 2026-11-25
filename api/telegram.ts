@@ -9,7 +9,8 @@ import { AVISO_CUOTA, esCuotaAgotada, guardar, leer, rutaNueva } from './_lib/ar
 import { conCambio, getVehicleAlerts, nuevoCambio, parseEsDate, textoCita, VENCIMIENTOS } from '../src/utils.js';
 import { CATEGORIAS, categoriaDe, esCategoria, estadoDocumentacion, MAX_BYTES, TIPOS_ARCHIVO, type DocResumen } from '../src/documentos.js';
 import { diasOcupados, planificar, tareasPendientes, textoPlan } from '../src/planificador.js';
-import type { ClaveTramite, ClaveVencimiento, Vehicle } from '../src/types.js';
+import { diaDe, euros, gastoPorAnio, leerImporte, ordenar, textoReparacion } from '../src/reparaciones.js';
+import type { ClaveTramite, ClaveVencimiento, Reparacion, Vehicle } from '../src/types.js';
 
 // Agente «Flotas Bonany» en Telegram (/api/telegram, webhook del bot).
 // Lo usan Facu y Jordi (grupo + privados: lista TELEGRAM_CHATS, estar en el grupo, o alta con ✅ desde el grupo).
@@ -49,6 +50,7 @@ Qué puedes hacer con tus herramientas:
 - Apuntar una cita YA SACADA (ITV, ATP o tacógrafo): proponer_cita. «Hemos sacado / pedido / tenemos cita de la ITV» significa cita sacada y pendiente de llevar el vehículo.
 - Cuando el trámite ya se ha hecho («ya pasó la ITV», «la hemos pasado»): proponer_nueva_fecha con la fecha del PRÓXIMO vencimiento. Esto también quita la cita. Si no te dan la fecha nueva, pregúntala; no la inventes. Si mandan la tarjeta o el informe de la ITV, léela de ahí.
 - Seguro: cada vehículo tiene la fecha en que VENCE su póliza (vencimiento «seguro»). Si renuevan el seguro o mandan la póliza, propón la fecha nueva con proponer_nueva_fecha (vencimiento «seguro»), leída del papel.
+- Reparaciones: cada vehículo tiene su historial de reparaciones y mantenimiento (fecha, taller, qué se hizo, importe, km, nº de factura). Si mandan la foto o el PDF de una FACTURA DE TALLER (o cuentan una reparación), lee de ahí la matrícula, la fecha, el taller, qué se hizo, el importe TOTAL con IVA, los km y el nº de factura, y propón guardarla con proponer_reparacion (la factura se guarda también, enlazada). Si falta la matrícula o qué se hizo, pregunta. Para «¿qué se le ha hecho al…?», «¿cuánto llevamos gastado en…?» o «¿cuándo se cambió…?», usa ver_reparaciones.
 - Anular una cita: proponer_quitar_cita. Cambiar un dato (chófer, aseguradora, póliza…): proponer_cambio. Dar de alta un vehículo: proponer_alta_vehiculo.
 - Guardar la foto o el PDF que viene en el mensaje en los documentos de un vehículo: proponer_guardar_archivo, diciendo SIEMPRE de qué tipo es (categoria): Permiso de circulación, Ficha técnica (también la «tarjeta ITV»), Póliza, ITV (informe de inspección), ATP, Tacógrafo, Carga y descarga, Tarjeta de transporte u Otro.
 
@@ -77,6 +79,8 @@ const HERRAMIENTAS: Anthropic.Beta.Messages.BetaToolUnion[] = [
   { name: 'proponer_guardar_archivo', description: 'Propone guardar la foto o el PDF que viene en ESTE mensaje en los documentos del vehículo. Botón ✅ para confirmar.', input_schema: { type: 'object', properties: { matricula, nombre: { type: 'string', description: 'Nombre corto del documento, p. ej. «Tarjeta ITV 2026»' }, categoria: { type: 'string', enum: [...CATEGORIAS], description: 'Tipo de documento' } }, required: ['matricula', 'nombre', 'categoria'] } },
   { name: 'ver_documentacion', description: 'Qué papeles le faltan a cada vehículo (permiso, ficha técnica, póliza, ITV; ATP si es frigorífico o isotermo; tacógrafo si pasa de 3.500 kg). Con matrícula: el detalle de ese vehículo y sus documentos. Sin matrícula: toda la flota.', input_schema: { type: 'object', properties: { matricula: { ...matricula, description: 'Opcional: solo este vehículo' } } } },
   { name: 'enviar_documento', description: `Manda por este chat documentos guardados de un vehículo (como mucho ${MAX_ENVIAR}). Filtra por tipo (categoria) o por parte del nombre.`, input_schema: { type: 'object', properties: { matricula, categoria: { type: 'string', enum: [...CATEGORIAS] }, nombre: { type: 'string', description: 'Parte del nombre del archivo, si lo saben' } }, required: ['matricula'] } },
+  { name: 'ver_reparaciones', description: 'Reparaciones y mantenimiento apuntados: con matrícula, la lista de ese vehículo (fecha, taller, qué, importe, km, factura) y el gasto por año; sin matrícula, el gasto de cada vehículo (este año y total) y su última reparación.', input_schema: { type: 'object', properties: { matricula: { ...matricula, description: 'Opcional: solo este vehículo' } } } },
+  { name: 'proponer_reparacion', description: 'Propone apuntar una reparación o mantenimiento en un vehículo. Si el mensaje trae la foto o el PDF de la factura, se guarda también, enlazada. Botón ✅ para confirmar.', input_schema: { type: 'object', properties: { matricula, fecha, que: { type: 'string', description: 'Qué se le hizo (corto y claro)' }, taller: { type: 'string' }, importe: { type: 'number', description: 'Importe TOTAL con IVA, en euros' }, km: { type: 'number', description: 'Kilómetros del vehículo, si los pone' }, factura: { type: 'string', description: 'Nº de factura' } }, required: ['matricula', 'fecha', 'que'] } },
   { name: 'planificar_revisiones', description: 'Propuesta de calendario para llevar los vehículos a ITV / ATP / tacógrafo: lo vencido o que vence en 45 días y sin cita, un vehículo al día, lunes a viernes por la tarde, sin festivos y sin pisar días que ya tienen cita.', input_schema: { type: 'object', properties: {} } },
 ];
 
@@ -254,6 +258,44 @@ async function ejecutar(ctx: Ctx, nombre: string, e: any): Promise<string> {
       for (const c of campos) vehiculo[c] = textoLimpio(e[c]);
       return proponer(ctx, 'alta', { vehiculo }, `Alta de ${m}: ${vehiculo.marca} ${vehiculo.tipo}${vehiculo.chofer ? ', chófer ' + vehiculo.chofer : ''}`);
     }
+    case 'ver_reparaciones': {
+      const leerDe = async (v: Vehicle) => ordenar((await db().collection('vehicles').doc(v.id!).collection('reparaciones').get())
+        .docs.map((d) => ({ id: d.id, ...(d.data() as Reparacion) })));
+      const anio = hoyTexto().slice(-4);
+      if (e.matricula) {
+        const v = await vehiculoDe(ctx, e.matricula);
+        const rs = await leerDe(v);
+        if (!rs.length) return `${v.matricula}: no hay ninguna reparación apuntada.`;
+        const g = gastoPorAnio(rs);
+        const anios = Object.keys(g).sort().reverse().map((a) => `${a}: ${euros(g[a].total)} (${g[a].n})`).join(' · ');
+        return `${v.matricula} — ${rs.length} reparaciones. Gasto por año: ${anios}\n` +
+          rs.slice(0, 40).map((x) => `- ${textoReparacion(x)}${x.documentoId ? ' · (con factura)' : ''}`).join('\n') +
+          (rs.length > 40 ? `\n… y ${rs.length - 40} más antiguas` : '');
+      }
+      const lineas: string[] = [];
+      let totalAnio = 0;
+      for (const v of await flotaDe(ctx)) {
+        const rs = await leerDe(v);
+        if (!rs.length) continue;
+        const g = gastoPorAnio(rs);
+        const esteAnio = g[anio]?.total || 0;
+        totalAnio += esteAnio;
+        lineas.push(`${v.matricula}: ${anio} ${euros(esteAnio)} · total ${euros(rs.reduce((s, x) => s + (x.importe || 0), 0))} en ${rs.length} · última ${rs[0].fecha} (${rs[0].que})`);
+      }
+      return lineas.length ? `Gasto en reparaciones en ${anio}: ${euros(totalAnio)}\n${lineas.join('\n')}` : 'No hay ninguna reparación apuntada en la flota.';
+    }
+    case 'proponer_reparacion': {
+      const v = await vehiculoDe(ctx, e.matricula);
+      if (!esFecha(e.fecha)) throw new Error('La fecha tiene que ser dd/mm/aaaa');
+      const que = textoLimpio(e.que);
+      if (!que) throw new Error('Falta qué se le hizo');
+      const importe = e.importe != null && e.importe !== '' ? leerImporte(e.importe) : null;
+      if (e.importe != null && e.importe !== '' && importe === null) throw new Error('El importe no se entiende');
+      const km = Number(e.km) > 0 ? Math.round(Number(e.km)) : null;
+      const rep = { fecha: e.fecha, que, taller: textoLimpio(e.taller), importe, km, factura: textoLimpio(e.factura) };
+      return proponer(ctx, 'reparacion', { vehicleId: v.id, matricula: v.matricula, rep, adjunto: ctx.adjunto || null },
+        `${v.matricula}: reparación del ${e.fecha}${rep.taller ? ' en ' + rep.taller : ''} — ${que}${importe != null ? ' — ' + euros(importe) : ''}${km ? ` — ${km} km` : ''}${ctx.adjunto ? ' (con la factura adjunta)' : ''}`);
+    }
     case 'proponer_guardar_archivo': {
       if (!ctx.adjunto) throw new Error('Este mensaje no trae ninguna foto ni archivo. Pide que lo manden.');
       const v = await vehiculoDe(ctx, e.matricula);
@@ -302,6 +344,32 @@ async function aplicar(p: any, quien: string) {
       await db().collection('vehicles').add({
         ...d.vehiculo, priority: 'medium', createdAt: FieldValue.serverTimestamp(),
         historial: [nuevoCambio(`Telegram · ${quien}`, 'Alta del vehículo')],
+      });
+      return;
+    }
+    case 'reparacion': {
+      // La factura (si vino en el mensaje) primero: así la reparación nace ya enlazada a ella.
+      let documentoId: string | null = null;
+      if (d.adjunto) {
+        const a = d.adjunto;
+        if (!TIPOS_ARCHIVO.includes(a.mime)) throw new Error(`La factura no es un PDF ni una foto (${a.mime})`);
+        const { datos } = await bajarArchivoTelegram(a.fileId);
+        if (datos.length > MAX_BYTES) throw new Error('La factura pesa más de 25 MB');
+        const nombre = `Factura ${d.matricula} ${d.rep.fecha.split('/').reverse().join('-')}${a.nombre.includes('.') ? a.nombre.slice(a.nombre.lastIndexOf('.')) : ''}`;
+        const ruta = rutaNueva(d.vehicleId, nombre);
+        await guardar(ruta, datos, a.mime);
+        documentoId = (await db().collection('documents').add({
+          vehicleId: d.vehicleId, name: nombre, type: a.mime, size: datos.length, categoria: 'Factura de taller',
+          url: '', isChunked: false, storagePath: ruta, uploadedAt: FieldValue.serverTimestamp(), subidoPor: `Telegram · ${quien}`,
+        })).id;
+      }
+      await veh!.collection('reparaciones').add({
+        ...d.rep, dia: diaDe(d.rep.fecha), ...(documentoId ? { documentoId } : {}),
+        origen: 'telegram', creadoPor: `Telegram · ${quien}`, creado: FieldValue.serverTimestamp(),
+      });
+      await veh!.update({
+        ultimaReparacion: d.rep.fecha,
+        historial: historial(`Reparación: ${d.rep.fecha} · ${d.rep.que}${d.rep.importe != null ? ' · ' + euros(d.rep.importe) : ''}`),
       });
       return;
     }

@@ -30,6 +30,11 @@ service cloud.firestore {
 
     match /vehicles/{vehicleId} {
       allow read, write: if isStaff();
+
+      // Reparaciones y mantenimiento de cada vehículo (desde el 25/11/2026).
+      match /reparaciones/{reparacionId} {
+        allow read, write: if isStaff();
+      }
     }
 
     // Documentos adjuntos y su subcolección /chunks.

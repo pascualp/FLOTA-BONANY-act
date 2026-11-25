@@ -22,6 +22,7 @@ export interface Vehicle {
   priority?: 'low' | 'medium' | 'high';
   // Últimos cambios (los más nuevos primero, como mucho HISTORIAL_MAX): quién, cuándo y qué. Lo escriben la web y el bot.
   historial?: Cambio[];
+  ultimaReparacion?: string;   // dd/mm/aaaa de la última reparación apuntada (las reparaciones van en su subcolección)
   createdAt?: Timestamp;
   // Citas ya sacadas y pendientes de llevar el vehículo (las pone el agente de Telegram al pulsar ✅)
   citas?: Partial<Record<ClaveTramite, Cita>>;
@@ -36,6 +37,24 @@ export interface Vehicle {
 // Trámites que se llevan a un sitio con cita (ITV, ATP, tacógrafo). El seguro vence pero no tiene cita.
 export type ClaveTramite = 'itv' | 'atp' | 'tacografo';
 export type ClaveVencimiento = ClaveTramite | 'seguro';
+
+// Reparación o mantenimiento de un vehículo (25/11/2026, Facu: «un historial de las reparaciones y qué se le ha hecho;
+// mandaremos fotos de las facturas y un histórico de Winclass»). Va en vehicles/<id>/reparaciones/<id>.
+export interface Reparacion {
+  id?: string;
+  fecha: string;          // dd/mm/aaaa (la de la factura o la del trabajo)
+  dia: string;            // aaaa-mm-dd: la misma fecha, para ordenar y filtrar por año
+  que: string;            // qué se le hizo
+  taller?: string;
+  importe?: number;       // euros, lo que pone la factura (IVA incluido)
+  km?: number;
+  factura?: string;       // nº de factura
+  documentoId?: string;   // la foto o el PDF de la factura (colección documents, categoría «Factura de taller»)
+  origen?: 'web' | 'telegram' | 'winclass';
+  ref?: string;           // clave en el sistema de origen (Winclass): para no importar dos veces lo mismo
+  creadoPor?: string;
+  creado?: Timestamp;
+}
 
 export interface Cambio {
   cuando: string;  // ISO (new Date().toISOString()): dentro de una lista Firestore no admite serverTimestamp
