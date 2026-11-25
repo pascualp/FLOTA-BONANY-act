@@ -31,7 +31,10 @@ export function LoginScreen({ aviso }: { aviso?: string }) {
     setEntrando(true);
     setError('');
     try {
-      await signInWithPopup(auth, new GoogleAuthProvider());
+      // Que Google pregunte siempre qué cuenta usar: si se entró con una sin permiso, así se puede cambiar.
+      const proveedor = new GoogleAuthProvider();
+      proveedor.setCustomParameters({ prompt: 'select_account' });
+      await signInWithPopup(auth, proveedor);
     } catch (e: any) {
       setError(mensajeError(e?.code || '', e?.message || ''));
     } finally {
@@ -47,7 +50,7 @@ export function LoginScreen({ aviso }: { aviso?: string }) {
         </div>
         <div className="text-center">
           <h1 className="text-2xl font-bold text-slate-800">Flotas Bonany</h1>
-          <p className="text-slate-500 text-sm mt-1">Entra con tu cuenta para ver la flota.</p>
+          <p className="text-slate-500 text-sm mt-1">Solo con la cuenta de Facu o con la de Bon Any.</p>
         </div>
         {aviso && <p className="text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-xl p-3 text-center">{aviso}</p>}
         <button

@@ -5,6 +5,7 @@ import {
   type Resumen,
 } from './_lib/flota.js';
 import type { Alert } from '../src/types.js';
+import { AVISO_SIN_ACCESO, tieneAcceso } from '../src/acceso.js';
 
 // Reporte de vencimientos de la flota (/api/reporte-diario).
 // - Cada mañana lo llama el cron de Vercel (vercel.json) con «Authorization: Bearer CRON_SECRET»: correo + Telegram.
@@ -103,19 +104,20 @@ export default async function reporteDiario(req: any, res: any) {
   const esCron = !!cronSecret && autorizacion === `Bearer ${cronSecret}`;
 
   try {
-    // 1) Solo el cron o alguien que haya entrado en la app (no anónimo).
+    // 1) Solo el cron o una de las cuentas con permiso (src/acceso.ts).
     let pedidoPor = 'cron diario';
     if (!esCron) {
       if (req.method !== 'POST' || !autorizacion.startsWith('Bearer ')) {
         return res.status(401).json({ error: 'No autorizado' });
       }
+      let token;
       try {
-        const token = await getAuth(firebaseAdmin()).verifyIdToken(autorizacion.slice('Bearer '.length));
-        if (token.firebase?.sign_in_provider === 'anonymous') throw new Error('anónimo');
-        pedidoPor = token.email || token.uid;
+        token = await getAuth(firebaseAdmin()).verifyIdToken(autorizacion.slice('Bearer '.length));
       } catch {
         return res.status(401).json({ error: 'Sesión no válida: vuelve a entrar en la app' });
       }
+      if (!tieneAcceso(token.email, token.email_verified)) return res.status(403).json({ error: AVISO_SIN_ACCESO(token.email) });
+      pedidoPor = token.email!;
     }
 
     // 2) Leer la flota y separar citas, vencidos y próximos.

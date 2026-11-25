@@ -16,6 +16,7 @@ import { LoginScreen } from './components/LoginScreen';
 import { Vehicle, VehicleDocument } from './types';
 import { getAllAlerts, problemasDe } from './utils';
 import { AVISO_CUOTA, esCuotaAgotada } from './documentos';
+import { AVISO_SIN_ACCESO, tieneAcceso } from './acceso';
 
 // Components
 import { AlertsList } from './components/AlertsList';
@@ -43,6 +44,14 @@ export default function App() {
   const [dataError, setDataError] = useState('');
 
   useEffect(() => onAuthStateChanged(auth, (u) => {
+    // Solo las cuentas de la lista (src/acceso.ts). Con otra cuenta de Google: aviso y fuera, sin leer nada
+    // (aunque se quedara dentro, las reglas de la base no le dejarían leer).
+    if (u && !tieneAcceso(u.email, u.emailVerified)) {
+      setDataError(AVISO_SIN_ACCESO(u.email));
+      signOut(auth);
+      setUser(null);
+      return;
+    }
     setUser(u);
     if (!u) { setTodos([]); setDocsPorVehiculo({}); setLoading(true); }
   }), []);

@@ -5,8 +5,11 @@ rules_version = '2';
 // Este fichero tiene que ser idéntico en los dos proyectos (flota/ y abonos/).
 //
 // Dos tipos de usuario:
-//  - Personal de oficina: cuentas con email y contraseña creadas a mano en
-//    Firebase Console (Authentication > Users).
+//  - Oficina: SOLO las cuentas de Google de la lista de isStaff() (25/11/2026,
+//    Facu: «que solo se entre con mi cuenta y la de Gmail de Bon Any»). Antes
+//    valía cualquier sesión no anónima: cualquier cuenta de Gmail podía leer,
+//    cambiar y borrar la flota y los abonos. La misma lista está en
+//    src/acceso.ts (web y funciones de Vercel): si se cambia, cambiar las dos.
 //  - Repartidores: sesión anónima (eligen su nombre de una lista, sin
 //    contraseña). Solo pueden leer el catálogo y crear / ver sus abonos.
 service cloud.firestore {
@@ -17,7 +20,10 @@ service cloud.firestore {
     }
 
     function isStaff() {
-      return isSignedIn() && request.auth.token.firebase.sign_in_provider != 'anonymous';
+      // .get() con valor por defecto: la sesión anónima de un repartidor no tiene correo y así no da error.
+      return isSignedIn()
+        && request.auth.token.get('email_verified', false) == true
+        && request.auth.token.get('email', '') in ['porteousfacundo@gmail.com', 'fruitesbonany20@gmail.com'];
     }
 
     // ───────────── Flotas Bonany ─────────────

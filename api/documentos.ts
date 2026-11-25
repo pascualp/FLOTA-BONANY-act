@@ -3,6 +3,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { db, firebaseAdmin } from './_lib/flota.js';
 import { AVISO_CUOTA, borrar, esCuotaAgotada, esRutaDe, rutaNueva, tamano, urlDescarga, urlSubida } from './_lib/archivos.js';
 import { esCategoria, MAX_BYTES, TIPOS_ARCHIVO } from '../src/documentos.js';
+import { AVISO_SIN_ACCESO, tieneAcceso } from '../src/acceso.js';
 
 // Documentos de los vehículos desde la web (/api/documentos), solo con sesión de Google (no anónima), como la app.
 // El archivo va a Google Cloud Storage (bucket privado) y en Firestore solo queda su ficha. Acciones (POST JSON):
@@ -21,8 +22,10 @@ export default async function documentos(req: any, res: any) {
     const aut: string = req.headers?.authorization || '';
     if (!aut.startsWith('Bearer ')) throw new Error('sin token');
     const t = await getAuth(firebaseAdmin()).verifyIdToken(aut.slice('Bearer '.length));
-    if (t.firebase?.sign_in_provider === 'anonymous') throw new Error('anónimo');
-    quien = t.email || t.uid;
+    if (!tieneAcceso(t.email, t.email_verified)) {
+      return res.status(403).json({ error: AVISO_SIN_ACCESO(t.email) });
+    }
+    quien = t.email!;
   } catch {
     return res.status(401).json({ error: 'Sesión no válida: vuelve a entrar en la app' });
   }
