@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { getAlertStatus, getVehicleAlerts, noAplica, papelesCaducados, parseEsDate, problemasDe, aFechaInput, deFechaInput, normalizarMatricula, conCambio, nuevoCambio, HISTORIAL_MAX } from '../src/utils.ts';
 import { tieneAcceso } from '../src/acceso.ts';
-import { leerImporte, gastoPorAnio, diaDe } from '../src/reparaciones.ts';
+import { leerImporte, gastoPorAnio, diaDe, refReparacion } from '../src/reparaciones.ts';
 import { esFestivo, planificar, tareasPendientes } from '../src/planificador.ts';
 import type { Vehicle } from '../src/types.ts';
 
@@ -101,6 +101,12 @@ prueba('importes y gasto por año', () => {
   assert.equal(diaDe('05/03/2026'), '2026-03-05');
   const g = gastoPorAnio([{ fecha: '', dia: '2026-02-01', que: 'a', importe: 100 }, { fecha: '', dia: '2026-03-01', que: 'b', importe: 23.5 }]);
   assert.deepEqual(g['2026'], { total: 123.5, n: 2 });
+});
+prueba('la misma factura por Telegram y por el importador da la misma clave', () => {
+  const bot = refReparacion('8031 MHJ', '25/09/2026', '#2026/002316');
+  const limpio = (x: string) => String(x || '').toUpperCase().replace(/[^A-Z0-9/]/g, '');   // la del importador (.cjs)
+  const importador = ['8031MHJ', '25/09/2026', '2026/002316'].map(limpio).join('|');
+  assert.equal(bot, importador);
 });
 
 // ---------- Planificador de revisiones ----------

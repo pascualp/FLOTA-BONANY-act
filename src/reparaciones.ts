@@ -18,6 +18,11 @@ export const leerImporte = (v: unknown): number | null => {
   return Number.isFinite(n) ? Math.round(n * 100) / 100 : null;
 };
 
+// Clave de una factura para no apuntarla dos veces, venga por Telegram, por la web o por el importador
+// (scripts/importar-reparaciones.cjs repite esta misma regla). El nombre del taller no entra: se escribe de mil formas.
+export const refReparacion = (matricula: string, fecha: string, factura: string) =>
+  [matricula, fecha, factura].map((x) => String(x || '').toUpperCase().replace(/[^A-Z0-9/]/g, '')).join('|');
+
 export const euros = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
 
 // Las más nuevas primero.

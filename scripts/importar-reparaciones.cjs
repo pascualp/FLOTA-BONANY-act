@@ -8,7 +8,7 @@
 //
 // Cada elemento de la lista: { matricula, fecha (dd/mm/aaaa), taller, factura, que, importe, km, notas,
 //   archivo (ruta a un PDF o foto de la factura, opcional), origen ('escaneo' | 'winclass'), ref (opcional) }
-// - No se importa dos veces: «ref» (por defecto «taller|nº factura|matrícula») se busca en las reparaciones del vehículo.
+// - No se importa dos veces: «ref» (por defecto «matrícula|fecha|nº factura») se busca en las reparaciones del vehículo.
 // - El archivo va al almacén (bucket bonany-flota-documentos) como «Factura de taller»: se sube, se vuelve a bajar y se
 //   compara la huella antes de crear la ficha. En la base solo va la ficha (nada de trozos).
 // Lecturas: los vehículos (campos pequeños) y las reparaciones de los vehículos que salen en la lista.
@@ -46,7 +46,10 @@ const euros = (n) => (n == null ? '' : n.toLocaleString('es-ES', { style: 'curre
     const v = activos.length === 1 ? activos[0] : vs.length === 1 ? vs[0] : null;
     if (!v) { console.log(`!! ${mat}: ${vs.length} fichas → no se toca («${r.que}»)`); problemas++; continue; }
     if (!diaDe(r.fecha) || !r.que) { console.log(`!! ${mat}: falta la fecha o qué se hizo → no se toca`); problemas++; continue; }
-    const ref = r.ref || [r.taller, r.factura, mat].map((x) => String(x || '').trim()).join('|');
+    // Misma regla que refReparacion() de src/reparaciones.ts (matrícula|fecha|nº factura): así una factura que ya llegó
+    // por Telegram no se importa otra vez. Sin nº de factura, también el texto (para no juntar dos distintas).
+    const limpio = (x) => String(x || '').toUpperCase().replace(/[^A-Z0-9/]/g, '');
+    const ref = r.ref || [mat, r.fecha, r.factura || r.que].map(limpio).join('|');
     if (!yaHay.has(v.id)) {
       const s = await v.ref.collection('reparaciones').select('ref').get();
       yaHay.set(v.id, new Set(s.docs.map((d) => d.get('ref')).filter(Boolean)));

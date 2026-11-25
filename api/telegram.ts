@@ -9,7 +9,7 @@ import { AVISO_CUOTA, esCuotaAgotada, guardar, leer, rutaNueva } from './_lib/ar
 import { conCambio, getVehicleAlerts, nuevoCambio, parseEsDate, textoCita, VENCIMIENTOS } from '../src/utils.js';
 import { CATEGORIAS, categoriaDe, esCategoria, estadoDocumentacion, MAX_BYTES, TIPOS_ARCHIVO, type DocResumen } from '../src/documentos.js';
 import { diasOcupados, planificar, tareasPendientes, textoPlan } from '../src/planificador.js';
-import { diaDe, euros, gastoPorAnio, leerImporte, ordenar, textoReparacion } from '../src/reparaciones.js';
+import { diaDe, euros, gastoPorAnio, leerImporte, ordenar, refReparacion, textoReparacion } from '../src/reparaciones.js';
 import type { ClaveTramite, ClaveVencimiento, Reparacion, Vehicle } from '../src/types.js';
 
 // Agente «Flotas Bonany» en Telegram (/api/telegram, webhook del bot).
@@ -58,7 +58,8 @@ Reglas:
 - Tú NUNCA guardas nada. Las herramientas proponer_* solo preparan el cambio y mandan un botón ✅ para que lo confirmen. No digas que está guardado: di que lo confirmen con el botón.
 - Si no está claro de qué vehículo se habla, o falta un dato imprescindible (como la fecha de la cita), pregunta antes de proponer. Las matrículas pueden venir incompletas o con espacios: búscalas con ver_flota; si hay varias posibles, pregunta.
 - Fechas siempre dd/mm/aaaa (año con 4 cifras) y horas HH:MM. «Mañana», «el martes», «el día 2»: calcúlalo con la fecha de hoy, que va al principio de cada mensaje.
-- Si mandan una foto o un PDF sin decir nada, mira qué es (tarjeta o informe de ITV, permiso de circulación, póliza, ficha técnica, multa…), di lo que ves y propón guardarlo en el vehículo que toque (busca la matrícula en el documento). Si es una ITV favorable, propón también la nueva fecha de la próxima ITV.
+- Si mandan una foto o un PDF sin decir nada, mira qué es (factura de taller, tarjeta o informe de ITV, permiso de circulación, póliza, ficha técnica, multa…), di lo que ves y propón guardarlo en el vehículo que toque (busca la matrícula en el documento). Si es una ITV favorable, propón también la nueva fecha de la próxima ITV. Si es una póliza, propón también la fecha en que vence el seguro.
+- FACTURAS DE TALLER (reparación, neumáticos, frenos, frío, recambios…): usa SOLO proponer_reparacion, que ya guarda la factura enlazada a la reparación; NO uses además proponer_guardar_archivo con la misma factura. Si un PDF trae VARIAS facturas (un escaneo de varias hojas), haz una proposición proponer_reparacion por cada factura, cada una con su matrícula; el archivo se guarda una sola vez por vehículo. Si la factura no pone la matrícula, búscala por la marca y modelo o pregunta.
 - No borras vehículos ni documentos: eso se hace en la web, ${URL_APP}
 - Si preguntan qué hay pendiente, usa ver_flota y resume: primero las citas de hoy y mañana, luego lo vencido sin cita y lo próximo a vencer.
 - Si el mensaje llega POR AUDIO (va marcado), es una transcripción automática: las matrículas y los nombres pueden venir mal oídos («nueve uno cinco uno ka uve jota», números sueltos…); búscalas en la flota y, si dudas, pregunta. Tu respuesta se leerá también en voz alta: sé más breve (2-4 frases), sin listas largas; si hay muchos vehículos, di cuántos son y los más urgentes.`;
@@ -84,7 +85,8 @@ const HERRAMIENTAS: Anthropic.Beta.Messages.BetaToolUnion[] = [
   { name: 'planificar_revisiones', description: 'Propuesta de calendario para llevar los vehículos a ITV / ATP / tacógrafo: lo vencido o que vence en 45 días y sin cita, un vehículo al día, lunes a viernes por la tarde, sin festivos y sin pisar días que ya tienen cita.', input_schema: { type: 'object', properties: {} } },
 ];
 
-interface Adjunto { fileId: string; nombre: string; mime: string }
+// unico = file_unique_id de Telegram: el mismo archivo siempre tiene el mismo (sirve para no guardarlo dos veces).
+interface Adjunto { fileId: string; nombre: string; mime: string; unico?: string }
 export interface Ctx { chatId: number; quien: string; adjunto?: Adjunto; flota?: Vehicle[]; propuestas: { id: string; resumen: string }[] }
 
 // ---------- Validaciones ----------
@@ -348,9 +350,20 @@ async function aplicar(p: any, quien: string) {
       return;
     }
     case 'reparacion': {
-      // La factura (si vino en el mensaje) primero: así la reparación nace ya enlazada a ella.
+      // La misma factura no se apunta dos veces (matrícula|fecha|nº de factura, la misma clave que usa el importador).
+      const ref = refReparacion(d.matricula, d.rep.fecha, d.rep.factura);
+      if (d.rep.factura) {
+        const repe = await veh!.collection('reparaciones').where('ref', '==', ref).limit(1).get();
+        if (!repe.empty) throw new Error(`Esta factura (${d.rep.taller} ${d.rep.factura}) ya está apuntada en ${d.matricula}`);
+      }
+      // La factura (si vino en el mensaje) primero: así la reparación nace ya enlazada a ella. Si el mismo archivo ya
+      // se guardó en este vehículo (un PDF con varias facturas → varias propuestas), se reutiliza en vez de duplicarlo.
       let documentoId: string | null = null;
-      if (d.adjunto) {
+      if (d.adjunto?.unico) {
+        const ya = await db().collection('documents').where('telegramUnico', '==', d.adjunto.unico).select('vehicleId').get();
+        documentoId = ya.docs.find((x) => x.get('vehicleId') === d.vehicleId)?.id || null;
+      }
+      if (d.adjunto && !documentoId) {
         const a = d.adjunto;
         if (!TIPOS_ARCHIVO.includes(a.mime)) throw new Error(`La factura no es un PDF ni una foto (${a.mime})`);
         const { datos } = await bajarArchivoTelegram(a.fileId);
@@ -361,10 +374,11 @@ async function aplicar(p: any, quien: string) {
         documentoId = (await db().collection('documents').add({
           vehicleId: d.vehicleId, name: nombre, type: a.mime, size: datos.length, categoria: 'Factura de taller',
           url: '', isChunked: false, storagePath: ruta, uploadedAt: FieldValue.serverTimestamp(), subidoPor: `Telegram · ${quien}`,
+          ...(a.unico ? { telegramUnico: a.unico } : {}),
         })).id;
       }
       await veh!.collection('reparaciones').add({
-        ...d.rep, dia: diaDe(d.rep.fecha), ...(documentoId ? { documentoId } : {}),
+        ...d.rep, dia: diaDe(d.rep.fecha), ...(documentoId ? { documentoId } : {}), ...(d.rep.factura ? { ref } : {}),
         origen: 'telegram', creadoPor: `Telegram · ${quien}`, creado: FieldValue.serverTimestamp(),
       });
       await veh!.update({
@@ -512,9 +526,9 @@ async function atenderMensaje(msg: any) {
   let adjunto: Adjunto | undefined;
   if (msg.photo?.length) {
     const grande = msg.photo[msg.photo.length - 1];
-    adjunto = { fileId: grande.file_id, nombre: `foto-${hoyTexto().split('/').reverse().join('-')}.jpg`, mime: 'image/jpeg' };
+    adjunto = { fileId: grande.file_id, unico: grande.file_unique_id, nombre: `foto-${hoyTexto().split('/').reverse().join('-')}.jpg`, mime: 'image/jpeg' };
   } else if (msg.document) {
-    adjunto = { fileId: msg.document.file_id, nombre: msg.document.file_name || 'archivo', mime: msg.document.mime_type || 'application/octet-stream' };
+    adjunto = { fileId: msg.document.file_id, unico: msg.document.file_unique_id, nombre: msg.document.file_name || 'archivo', mime: msg.document.mime_type || 'application/octet-stream' };
   }
 
   // Audio (nota de voz, archivo de audio o vídeo redondo): se pasa a texto y se trata como si lo hubieran escrito.
@@ -552,7 +566,7 @@ async function atenderMensaje(msg: any) {
     } else if (adjunto.mime === 'application/pdf' && datos.length <= 20 * 1024 * 1024) {
       contenido.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } });
     }
-    notaAdjunto = `\n[Adjunta un archivo: «${adjunto.nombre}» (${adjunto.mime}, ${Math.round(datos.length / 1024)} KB). Se puede guardar con proponer_guardar_archivo.]`;
+    notaAdjunto = `\n[Adjunta un archivo: «${adjunto.nombre}» (${adjunto.mime}, ${Math.round(datos.length / 1024)} KB). Si es una factura de taller: proponer_reparacion (una por factura). Si es otro papel: proponer_guardar_archivo.]`;
   }
   const como = audio ? `${quien} POR AUDIO (transcripción automática)` : quien;
   contenido.push({ type: 'text', text: `[Hoy es ${hoyLargo()}. Escribe ${como}.]\n${texto || '(sin texto)'}${notaAdjunto}` });
