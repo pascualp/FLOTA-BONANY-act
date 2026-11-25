@@ -6,7 +6,8 @@ import {
   CheckCircle2,
   Mail,
   Bell,
-  LogOut
+  LogOut,
+  Truck
 } from 'lucide-react';
 import { db, auth } from './lib/firebase';
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
@@ -17,11 +18,15 @@ import { getAllAlerts, calculateStats } from './utils';
 
 // Components
 import { AlertsList } from './components/AlertsList';
+import { VehicleList } from './components/VehicleList';
 import { VehicleModal } from './components/VehicleModal';
 import { AddVehicleModal } from './components/AddVehicleModal';
 
 export default function App() {
-  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  // Todas las fichas, también las que están fuera de la flota (campo «baja»).
+  const [todos, setTodos] = useState<Vehicle[]>([]);
+  // Cuántos documentos tiene cada vehículo (id → nº), para ver de un vistazo a quién le falta la documentación.
+  const [docsPorVehiculo, setDocsPorVehiculo] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('alerts');
   const [showAddModal, setShowAddModal] = useState(false);
@@ -36,7 +41,7 @@ export default function App() {
 
   useEffect(() => onAuthStateChanged(auth, (u) => {
     setUser(u);
-    if (!u) { setVehicles([]); setLoading(true); }
+    if (!u) { setTodos([]); setDocsPorVehiculo({}); setLoading(true); }
   }), []);
 
   // Manda ya el mismo reporte que sale solo cada mañana (lo arma y lo envía el servidor: /api/reporte-diario).
@@ -66,10 +71,10 @@ export default function App() {
     // cambio de la base. Eso duplicaba fichas (5875NDS ×4) y resucitaba cualquier vehículo borrado. La flota ya
     // está en Firestore: solo se lee.
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const existingData = (snapshot.docs.map(doc => ({ id: doc.id, ...(doc.data() as any) })) as Vehicle[])
-        .filter(v => !v.baja);   // los dados de baja no se enseñan
+      const existingData = snapshot.docs.map(doc => ({ id: doc.id, ...(doc.data() as any) })) as Vehicle[];
+      existingData.sort((a, b) => String(a.matricula || '').localeCompare(String(b.matricula || '')));
       setDataError('');
-      setVehicles(existingData);
+      setTodos(existingData);
       setLoading(false);
     }, (error) => {
       // Antes no había este aviso: con «permiso denegado» la pantalla se quedaba en «Cargando Flota...» para siempre
@@ -80,6 +85,19 @@ export default function App() {
       signOut(auth);   // vuelve a la pantalla de entrada con el aviso, para poder probar con otra cuenta
     });
     return () => unsubscribe();
+  }, [user]);
+
+  // Recuento de documentos por vehículo. Las fichas de documento son ligeras (el archivo va troceado en /chunks).
+  useEffect(() => {
+    if (!user) return;
+    return onSnapshot(collection(db, 'documents'), (snapshot) => {
+      const cuenta: Record<string, number> = {};
+      snapshot.docs.forEach(d => {
+        const vid = d.data().vehicleId;
+        if (vid) cuenta[vid] = (cuenta[vid] || 0) + 1;
+      });
+      setDocsPorVehiculo(cuenta);
+    }, (error) => console.error('Error contando los documentos:', error));
   }, [user]);
 
   useEffect(() => {
@@ -100,10 +118,13 @@ export default function App() {
     return () => unsubscribe();
   }, [selectedVehicle, user]);
 
+  // Solo la flota que SÍ tenemos cuenta para las alertas; la de fuera sale aparte en «Vehículos».
+  const vehicles = todos.filter(v => !v.baja);
+  const fuera = todos.filter(v => v.baja);
   const stats = calculateStats(vehicles);
   const alerts = getAllAlerts(vehicles);
 
-  const currentVehicle = selectedVehicle ? vehicles.find(v => v.id === selectedVehicle.id) || selectedVehicle : null;
+  const currentVehicle = selectedVehicle ? todos.find(v => v.id === selectedVehicle.id) || selectedVehicle : null;
 
   if (user === null) {
     return <LoginScreen aviso={dataError} />;
@@ -145,7 +166,17 @@ export default function App() {
                   </span>
                 )}
               </li>
-              <li 
+              <li
+                onClick={() => setActiveTab('vehicles')}
+                className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all duration-200 ${activeTab === 'vehicles' ? 'text-blue-600 bg-blue-50 shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}
+              >
+                <Truck className="w-5 h-5" />
+                Vehículos
+                <span className="ml-auto bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full text-[10px] font-bold">
+                  {vehicles.length}
+                </span>
+              </li>
+              <li
                 onClick={sendEmailReport}
                 className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all duration-200 text-slate-500 hover:bg-blue-50 hover:text-blue-600 group ${isSendingEmail ? 'opacity-50 pointer-events-none' : ''}`}
               >
@@ -192,7 +223,19 @@ export default function App() {
           <AlertsList 
             alerts={alerts} 
             setSelectedVehicle={setSelectedVehicle} 
-            setIsEditing={setIsEditing} 
+            setIsEditing={setIsEditing}
+          />
+        )}
+
+        {activeTab === 'vehicles' && (
+          <VehicleList
+            vehicles={vehicles}
+            fuera={fuera}
+            allAlerts={alerts}
+            docsPorVehiculo={docsPorVehiculo}
+            searchQuery={searchQuery}
+            setSearchQuery={setSearchQuery}
+            setSelectedVehicle={setSelectedVehicle}
           />
         )}
 

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { X, Trash2, UploadCloud, FileText, Download, Loader2 } from 'lucide-react';
+import { X, Trash2, UploadCloud, FileText, Download, Loader2, ArchiveX, Undo2 } from 'lucide-react';
 import { db } from '../lib/firebase';
-import { collection, addDoc, serverTimestamp, deleteDoc, doc as firestoreDoc, updateDoc, getDocs, writeBatch } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, deleteDoc, deleteField, doc as firestoreDoc, updateDoc, getDocs, writeBatch } from 'firebase/firestore';
 import { Vehicle, VehicleDocument } from '../types';
 import { getAlertStatus } from '../utils';
 
@@ -95,21 +95,70 @@ export const VehicleModal = ({
             <p className="text-slate-500 font-medium">{selectedVehicle.marca}</p>
           </div>
           <div className="flex items-center gap-2">
-            <button 
-              onClick={async () => {
-                if (window.confirm('¿Estás seguro de que deseas eliminar este vehículo? Esta acción no se puede deshacer.')) {
-                  if (selectedVehicle.id) {
-                    await deleteDoc(firestoreDoc(db, 'vehicles', selectedVehicle.id));
+            {/* «Sacar de la flota» en vez de borrar: se puede deshacer, conserva sus documentos y una pestaña
+                con la web vieja no lo vuelve a crear. Borrar del todo solo se puede una vez fuera de la flota. */}
+            {!selectedVehicle.baja ? (
+              <button
+                onClick={async () => {
+                  if (!selectedVehicle.id) return;
+                  const motivo = window.prompt(
+                    `¿Sacar ${selectedVehicle.matricula} de la flota? Dejará de salir en las alertas, el correo y Telegram, ` +
+                    'pero se queda guardado en «Vehículos → Fuera de la flota» y se puede devolver.\n\nMotivo:',
+                    'No está en el GPS'
+                  );
+                  if (motivo === null) return;
+                  try {
+                    await updateDoc(firestoreDoc(db, 'vehicles', selectedVehicle.id), {
+                      baja: true,
+                      bajaMotivo: motivo.trim() || 'Fuera de la flota',
+                      bajaFecha: new Date().toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' }),
+                    });
                     setSelectedVehicle(null);
                     setIsEditing(false);
+                  } catch (err: any) {
+                    alert('No se pudo sacar de la flota: ' + (err?.message || err));
                   }
-                }
-              }}
-              className="px-4 py-2 rounded-lg font-bold text-sm bg-red-50 text-red-600 hover:bg-red-100 transition-colors flex items-center gap-2"
-            >
-              <Trash2 className="w-4 h-4" />
-              Eliminar
-            </button>
+                }}
+                className="px-4 py-2 rounded-lg font-bold text-sm bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors flex items-center gap-2"
+              >
+                <ArchiveX className="w-4 h-4" />
+                Sacar de la flota
+              </button>
+            ) : (
+              <>
+                <button
+                  onClick={async () => {
+                    if (!selectedVehicle.id) return;
+                    try {
+                      await updateDoc(firestoreDoc(db, 'vehicles', selectedVehicle.id), {
+                        baja: deleteField(), bajaMotivo: deleteField(), bajaFecha: deleteField(),
+                      });
+                    } catch (err: any) {
+                      alert('No se pudo devolver a la flota: ' + (err?.message || err));
+                    }
+                  }}
+                  className="px-4 py-2 rounded-lg font-bold text-sm bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors flex items-center gap-2"
+                >
+                  <Undo2 className="w-4 h-4" />
+                  Volver a la flota
+                </button>
+                <button
+                  onClick={async () => {
+                    if (window.confirm(`¿Borrar ${selectedVehicle.matricula} PARA SIEMPRE? Esto no se puede deshacer. Sus documentos no se borran.`)) {
+                      if (selectedVehicle.id) {
+                        await deleteDoc(firestoreDoc(db, 'vehicles', selectedVehicle.id));
+                        setSelectedVehicle(null);
+                        setIsEditing(false);
+                      }
+                    }
+                  }}
+                  title="Borrar para siempre"
+                  className="p-2 rounded-lg text-red-400 hover:bg-red-50 transition-colors"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </>
+            )}
             <button 
               onClick={() => setIsEditing(!isEditing)} 
               className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${
@@ -123,6 +172,16 @@ export const VehicleModal = ({
             </button>
           </div>
         </div>
+
+        {selectedVehicle.baja && (
+          <div className="mb-6 p-3 rounded-xl bg-slate-100 border border-slate-200 text-sm text-slate-600 flex items-center gap-2">
+            <ArchiveX className="w-4 h-4 shrink-0" />
+            <span>
+              <b>Fuera de la flota</b>: {selectedVehicle.bajaMotivo || 'sin motivo'}{selectedVehicle.bajaFecha ? ` (desde ${selectedVehicle.bajaFecha})` : ''}.
+              No sale en las alertas, ni en el correo, ni en Telegram.
+            </span>
+          </div>
+        )}
 
         {!isEditing && (
           <div className="space-y-4 mb-6">
