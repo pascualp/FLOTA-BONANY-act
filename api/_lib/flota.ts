@@ -55,6 +55,7 @@ export interface Resumen {
   conCita: Alert[];   // con cita sacada, pendiente de llevar (salga vencido o no)
   vencidos: Alert[];  // vencidos SIN cita
   proximos: Alert[];  // próximos a vencer SIN cita
+  revisar: Alert[];   // fecha escrita que no se entiende («FALTA», «00/00/00»…) SIN cita: antes no salían en ningún sitio
 }
 
 export function resumir(flota: Vehicle[]): Resumen {
@@ -67,6 +68,7 @@ export function resumir(flota: Vehicle[]): Resumen {
     conCita,
     vencidos: sinCita.filter((a) => a.status.status === 'danger'),
     proximos: sinCita.filter((a) => a.status.status === 'warning'),
+    revisar: sinCita.filter((a) => a.status.status === 'unknown'),
   };
 }
 

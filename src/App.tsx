@@ -14,7 +14,7 @@ import { collection, onSnapshot, query } from 'firebase/firestore';
 import { onAuthStateChanged, signOut, User } from 'firebase/auth';
 import { LoginScreen } from './components/LoginScreen';
 import { Vehicle, VehicleDocument } from './types';
-import { getAllAlerts, calculateStats } from './utils';
+import { getAllAlerts, problemasDe } from './utils';
 import { AVISO_CUOTA, esCuotaAgotada } from './documentos';
 
 // Components
@@ -57,7 +57,7 @@ export default function App() {
       const data = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(data.error || `Error ${r.status}`);
       alert(data.enviado
-        ? `Reporte enviado a ${data.para} (${data.vencidos} vencidos, ${data.proximos} próximos).`
+        ? `Reporte enviado a ${data.para} (${data.vencidos} vencidos, ${data.proximos} próximos${data.revisar ? `, ${data.revisar} fechas a revisar` : ''}).`
         : 'No hay trámites pendientes: no se ha enviado nada.');
     } catch (error: any) {
       console.error(error);
@@ -120,8 +120,10 @@ export default function App() {
   // Solo la flota que SÍ tenemos cuenta para las alertas; la de fuera sale aparte en «Vehículos».
   const vehicles = todos.filter(v => !v.baja);
   const fuera = todos.filter(v => v.baja);
-  const stats = calculateStats(vehicles);
   const alerts = getAllAlerts(vehicles);
+  // Contador del menú: trámites vencidos, que vencen pronto o con fecha que no se entiende, sin cita sacada.
+  // Lo que está en regla no cuenta (antes salía el total de fechas de toda la flota).
+  const porMirar = vehicles.reduce((n, v) => { const p = problemasDe(v); return n + p.vencidos + p.pronto + p.revisar; }, 0);
 
   const currentVehicle = selectedVehicle ? todos.find(v => v.id === selectedVehicle.id) || selectedVehicle : null;
   const vehicleDocuments = currentVehicle?.id ? docsPorVehiculo[currentVehicle.id] || [] : [];
@@ -160,9 +162,9 @@ export default function App() {
               >
                 <AlertCircle className="w-5 h-5" />
                 Alertas de Vencimiento
-                {alerts.length > 0 && (
-                  <span className="ml-auto bg-red-100 text-red-600 px-2 py-0.5 rounded-full text-[10px] font-bold">
-                    {alerts.length}
+                {porMirar > 0 && (
+                  <span className="ml-auto bg-red-100 text-red-600 px-2 py-0.5 rounded-full text-[10px] font-bold" title="Trámites por mirar (sin cita sacada)">
+                    {porMirar}
                   </span>
                 )}
               </li>
@@ -237,7 +239,6 @@ export default function App() {
           <VehicleList
             vehicles={vehicles}
             fuera={fuera}
-            allAlerts={alerts}
             docsPorVehiculo={docsPorVehiculo}
             searchQuery={searchQuery}
             setSearchQuery={setSearchQuery}

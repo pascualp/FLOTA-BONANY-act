@@ -3,7 +3,7 @@ import { X, Trash2, UploadCloud, FileText, Download, Loader2, ArchiveX, Undo2 } 
 import { db } from '../lib/firebase';
 import { collection, deleteDoc, deleteField, doc as firestoreDoc, updateDoc, getDocs } from 'firebase/firestore';
 import { Vehicle, VehicleDocument } from '../types';
-import { getAlertStatus } from '../utils';
+import { getAlertStatus, noAplica } from '../utils';
 import { AVISO_CUOTA, CATEGORIAS, Categoria, categoriaDe, esCuotaAgotada, estadoDocumentacion, MAX_BYTES, TIPOS_ARCHIVO } from '../documentos';
 import { abrirDocumento, borrarDocumento, subirDocumento, tipoDe } from '../lib/documentosApi';
 
@@ -293,17 +293,19 @@ export const VehicleModal = ({
                   { label: 'Vencimiento ATP', value: selectedVehicle.vencimientoATP },
                   { label: 'Revisión Tacógrafo', value: selectedVehicle.revisionTacografo }
                 ].map((row, i) => {
-                  const st = row.value ? getAlertStatus(row.value, selectedVehicle.priority || 'medium') : null;
+                  // «N/A» / «no aplica»: ese trámite no le toca; sin etiqueta.
+                  const st = row.value && !noAplica(row.value) ? getAlertStatus(row.value, selectedVehicle.priority || 'medium') : null;
                   return (
                     <div key={i} className="flex justify-between items-center bg-slate-50 p-3 rounded-xl border border-slate-100">
                       <div>
                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{row.label}</p>
                         <p className="font-bold text-sm text-slate-700">{row.value || 'N/A'}</p>
                       </div>
-                      {st && st.status !== 'unknown' && (
+                      {st && (
                         <span className={`text-[9px] px-2 py-1 rounded font-black ${
                           st.status === 'danger' ? 'bg-red-100 text-red-600' :
                           st.status === 'warning' ? 'bg-amber-100 text-amber-600' :
+                          st.status === 'unknown' ? 'bg-slate-200 text-slate-600' :
                           'bg-emerald-100 text-emerald-600'
                         }`}>
                           {st.text}

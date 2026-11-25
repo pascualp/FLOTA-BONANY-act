@@ -1,4 +1,4 @@
-import { parse, isValid, isBefore, addDays } from 'date-fns';
+import { differenceInCalendarDays } from 'date-fns';
 import { Vehicle, AlertStatus, ClaveTramite, Cita } from './types';
 
 // Los tres trámites con fecha de la flota: clave corta, nombre en pantalla y campo del vehículo.
@@ -12,39 +12,66 @@ export const TRAMITES: { clave: ClaveTramite; label: string; campo: 'proximaITV'
 export const textoCita = (c: Cita) =>
   `Cita ${c.fecha}${c.hora ? ' ' + c.hora : ''}${c.lugar ? ' (' + c.lugar + ')' : ''} – pendiente de llevar`;
 
-export const parseEsDate = (dateStr: any) => {
-  if (!dateStr || typeof dateStr !== 'string' || dateStr.toLowerCase().includes('no')) return null;
-  let clean = dateStr.split('(')[0].trim();
-  const divider = clean.includes('/') ? '/' : clean.includes('-') ? '-' : null;
-  if (divider) {
-    const parts = clean.split(divider);
-    if (parts.length === 3) {
-      let year = parts[2];
-      if (year.length === 2) year = '20' + year;
-      const parsed = parse(`${parts[0]}/${parts[1]}/${year}`, 'dd/MM/yyyy', new Date());
-      return isValid(parsed) ? parsed : null;
-    }
-    if (parts.length === 2) {
-       const parsed = parse(`01/${parts[0]}/${parts[1].length === 2 ? '20'+parts[1] : parts[1]}`, 'dd/MM/yyyy', new Date());
-       return isValid(parsed) ? parsed : null;
-    }
-  }
-  return null;
+const sinTildes = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '');
+
+// Meses escritos con letras, en castellano y en catalán («sep/2026», «septiembre de 2026», «set. 2026», «maig 2027»…).
+const MESES: Record<string, number> = {
+  ene: 1, enero: 1, gen: 1, gener: 1,
+  feb: 2, febrero: 2, febr: 2, febrer: 2,
+  mar: 3, marzo: 3, marc: 3,
+  abr: 4, abril: 4,
+  may: 5, mayo: 5, maig: 5,
+  jun: 6, junio: 6, juny: 6,
+  jul: 7, julio: 7, juliol: 7,
+  ago: 8, agosto: 8, ag: 8, agost: 8,
+  sep: 9, sept: 9, set: 9, septiembre: 9, setiembre: 9, setembre: 9,
+  oct: 10, octubre: 10,
+  nov: 11, noviembre: 11, novembre: 11,
+  dic: 12, diciembre: 12, des: 12, desembre: 12,
 };
 
-export const getAlertStatus = (dateStr: string, priority: 'low' | 'medium' | 'high' = 'medium'): AlertStatus => {
-  const d = parseEsDate(dateStr);
-  if (!d) return { status: 'unknown', text: 'Desconocido' };
-  const now = new Date();
-  if (isBefore(d, now)) return { status: 'danger', text: 'VENCIDO' };
-  
-  // Custom threshold based on priority
-  let daysWarning = 30;
-  if (priority === 'high') daysWarning = 60;
-  if (priority === 'low') daysWarning = 15;
+// Lo que se escribe en una fecha cuando ese trámite no le toca al vehículo: no es una alerta.
+const NO_APLICA = /^(n\/?a|no aplica|no procede|no tiene|no lleva|-+)$/;
+export const noAplica = (valor: unknown) =>
+  typeof valor === 'string' && NO_APLICA.test(sinTildes(valor).trim().toLowerCase());
 
-  if (isBefore(d, addDays(now, daysWarning))) return { status: 'warning', text: `Vence < ${daysWarning} días` };
-  return { status: 'success', text: 'En Regla' };
+// Fecha escrita a mano → Date (o null si no se entiende). Las fechas de la flota se teclean de muchas formas:
+// «23/03/27», «20/08/2026», «15-05-2027», «15.05.2027», «15 de mayo de 2027», y también solo mes y año («05/30»,
+// «03-2027», «sep/2026»). Un certificado «válido hasta septiembre de 2026» vale TODO ese mes: con solo mes y año se
+// toma el ÚLTIMO día del mes (antes se tomaba el 1 y daba por vencido lo que aún valía).
+// No se adivina: «00/00/00», «31/02/27», «FALTA» o «ITV 23/03/27» → null, y la app lo enseña como «fecha que no entiendo».
+export const parseEsDate = (dateStr: any): Date | null => {
+  if (!dateStr || typeof dateStr !== 'string') return null;
+  let s = sinTildes(dateStr.split('(')[0]).toLowerCase().trim();
+  if (!/\d/.test(s)) return null;
+  s = s.replace(/[a-z]+/g, (w) => (MESES[w] ? ` ${MESES[w]} ` : w === 'de' || w === 'del' ? ' ' : w));
+  const partes = s.split(/[/\-.\s]+/).filter(Boolean);
+  if (!partes.every((p) => /^\d+$/.test(p))) return null;
+  const anio = (t: string) => (t.length === 2 ? 2000 + Number(t) : t.length === 4 ? Number(t) : NaN);
+  let d: number, m: number, y: number;
+  if (partes.length === 3) {
+    d = Number(partes[0]); m = Number(partes[1]); y = anio(partes[2]);
+  } else if (partes.length === 2) {
+    m = Number(partes[0]); y = anio(partes[1]);
+    d = new Date(y, m, 0).getDate();   // día 0 del mes siguiente = último día de este mes
+  } else return null;
+  if (!(m >= 1 && m <= 12) || !(y >= 1990 && y <= 2100)) return null;
+  const f = new Date(y, m - 1, d);
+  // Sin desbordes: «31/02/27» no se convierte en el 3 de marzo.
+  return f.getFullYear() === y && f.getMonth() === m - 1 && f.getDate() === d ? f : null;
+};
+
+// Estado de un trámite según su fecha. «hoy» se puede pasar para las pruebas.
+// Vence el mismo día que pone la fecha: ese día aún vale; al día siguiente, VENCIDO.
+export const getAlertStatus = (dateStr: string, priority: 'low' | 'medium' | 'high' = 'medium', hoy = new Date()): AlertStatus => {
+  const d = parseEsDate(dateStr);
+  if (!d) return { status: 'unknown', text: /falta/i.test(String(dateStr)) ? 'Falta la fecha' : 'Fecha que no entiendo' };
+  const dias = differenceInCalendarDays(d, hoy);
+  if (dias < 0) return { status: 'danger', text: 'VENCIDO' };
+  // Cuánto antes se avisa, según la prioridad del vehículo.
+  const aviso = priority === 'high' ? 60 : priority === 'low' ? 15 : 30;
+  if (dias <= aviso) return { status: 'warning', text: dias === 0 ? 'Vence HOY' : dias === 1 ? 'Vence mañana' : `Vence en ${dias} días` };
+  return { status: 'success', text: 'En regla' };
 };
 
 export const getMissingFields = (v: Vehicle) => {
@@ -62,13 +89,27 @@ export const getVehicleAlerts = (v: Vehicle) => {
 
   TRAMITES.forEach(t => {
     const value = v[t.campo];
-    if (value) {
+    // Vacío o «N/A» / «no aplica»: ese trámite no le toca a este vehículo.
+    if (value && !noAplica(value)) {
       const st = getAlertStatus(value, v.priority || 'medium');
       alerts.push({ label: t.label, ...st, date: value, clave: t.clave, cita: v.citas?.[t.clave] });
     }
   });
 
   return alerts;
+};
+
+// Lo que de verdad hay que mirar de un vehículo: para la insignia de la tarjeta y el contador del menú.
+// Lo que está «En regla» NO cuenta (antes la insignia contaba todas las fechas: «3 alertas» con todo bien).
+// Lo que ya tiene cita sacada cuenta aparte: ya está en marcha.
+export const problemasDe = (v: Vehicle) => {
+  const al = getVehicleAlerts(v);
+  return {
+    vencidos: al.filter(a => a.status === 'danger' && !a.cita).length,
+    pronto: al.filter(a => a.status === 'warning' && !a.cita).length,
+    revisar: al.filter(a => a.status === 'unknown' && !a.cita).length,
+    conCita: al.filter(a => a.cita).length,
+  };
 };
 
 export const getAllAlerts = (vehicles: Vehicle[]) => {
@@ -80,7 +121,7 @@ export const getAllAlerts = (vehicles: Vehicle[]) => {
     });
   });
   return alerts.sort((a, b) => {
-    const priority = { danger: 0, warning: 1, success: 2, unknown: 3 };
+    const priority = { danger: 0, warning: 1, unknown: 2, success: 3 };   // una fecha que no se entiende va antes que lo que está en regla
     const pA = priority[a.status.status as keyof typeof priority] ?? 4;
     const pB = priority[b.status.status as keyof typeof priority] ?? 4;
     
@@ -88,35 +129,7 @@ export const getAllAlerts = (vehicles: Vehicle[]) => {
 
     const da = parseEsDate(a.date);
     const db = parseEsDate(b.date);
-    if (!da) return 1; if (!db) return -1;
+    if (!da || !db) return (da ? 0 : 1) - (db ? 0 : 1);
     return da.getTime() - db.getTime();
   });
-};
-
-export const calculateStats = (vehicles: Vehicle[]) => {
-  let vehiculosCriticos = 0;
-  let vehiculosWarning = 0;
-
-  vehicles.forEach(v => {
-    let hasCritical = false;
-    let hasWarning = false;
-    const check = (d: string) => {
-       const st = getAlertStatus(d, v.priority || 'medium');
-       if (st.status === 'danger') hasCritical = true;
-       if (st.status === 'warning') hasWarning = true;
-    };
-    if (v.proximaITV) check(v.proximaITV);
-    if (v.vencimientoATP) check(v.vencimientoATP);
-    if (v.revisionTacografo) check(v.revisionTacografo);
-
-    if (hasCritical) vehiculosCriticos++;
-    else if (hasWarning) vehiculosWarning++;
-  });
-
-  return { 
-    total: vehicles.length, 
-    itvProxMes: vehiculosWarning, 
-    criticas: vehiculosCriticos, 
-    operativo: vehicles.length - vehiculosCriticos - vehiculosWarning 
-  };
 };

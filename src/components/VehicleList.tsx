@@ -1,12 +1,12 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Car, FileSearch, ArchiveX, CheckCircle2, FileWarning } from 'lucide-react';
-import { Vehicle, Alert, VehicleDocument } from '../types';
+import { Vehicle, VehicleDocument } from '../types';
 import { estadoDocumentacion } from '../documentos';
+import { getVehicleAlerts, problemasDe, TRAMITES } from '../utils';
 
 interface VehicleListProps {
   vehicles: Vehicle[];                                // la flota que SÍ tenemos
   fuera: Vehicle[];                                   // fuera de la flota (campo «baja»: no está en el GPS, vendido…)
-  allAlerts: Alert[];
   docsPorVehiculo: Record<string, VehicleDocument[]>; // id del vehículo → sus documentos
   searchQuery: string;
   setSearchQuery: (query: string) => void;
@@ -18,7 +18,16 @@ const coincide = (v: Vehicle, term: string) =>
   !term ||
   [v.matricula, v.marca, v.bastidor, v.chofer].some(x => String(x ?? '').toLowerCase().includes(term));
 
-export const VehicleList = ({ vehicles, fuera, allAlerts, docsPorVehiculo, searchQuery, setSearchQuery, setSelectedVehicle }: VehicleListProps) => {
+const Insignia = ({ clase, children }: { clase: string; children: ReactNode }) => (
+  <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold whitespace-nowrap ${clase}`}>{children}</span>
+);
+
+// Color de cada fecha en la tarjeta: rojo vencido, ámbar vence pronto, azul con cita, gris si no se entiende.
+const COLOR_FECHA: Record<string, string> = {
+  danger: 'text-red-600 font-bold', warning: 'text-amber-600 font-bold', unknown: 'text-slate-400 italic', success: 'font-medium',
+};
+
+export const VehicleList = ({ vehicles, fuera, docsPorVehiculo, searchQuery, setSearchQuery, setSelectedVehicle }: VehicleListProps) => {
   const [soloIncompletos, setSoloIncompletos] = useState(false);
   const term = searchQuery.trim().toLowerCase();
   const estado = (v: Vehicle) => estadoDocumentacion(v, docsPorVehiculo[v.id || ''] || []);
@@ -63,7 +72,8 @@ export const VehicleList = ({ vehicles, fuera, allAlerts, docsPorVehiculo, searc
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {activos.map(v => {
-              const vAlerts = allAlerts.filter(a => a.vehicle.id === v.id);
+              const p = problemasDe(v);
+              const fechas = getVehicleAlerts(v);
               const e = estado(v);
               return (
                 <div
@@ -73,22 +83,33 @@ export const VehicleList = ({ vehicles, fuera, allAlerts, docsPorVehiculo, searc
                 >
                   <div className="flex justify-between items-start mb-2">
                     <div>
-                      <h5 className="font-bold text-slate-900 flex items-center gap-2">
-                        {v.matricula}
-                        {vAlerts.length > 0 && (
-                          <span className="bg-red-100 text-red-600 text-[10px] px-2 py-0.5 rounded-full">
-                            {vAlerts.length} {vAlerts.length === 1 ? 'alerta' : 'alertas'}
-                          </span>
-                        )}
-                      </h5>
+                      <h5 className="font-bold text-slate-900">{v.matricula}</h5>
                       <p className="text-xs text-slate-500">{v.marca} - {v.tipo}{v.chofer ? ` · ${v.chofer}` : ''}</p>
+                      {/* Solo lo que hay que mirar: lo que está en regla no cuenta como alerta. */}
+                      <div className="flex flex-wrap gap-1 mt-2">
+                        {p.vencidos > 0 && <Insignia clase="bg-red-100 text-red-600">{p.vencidos} {p.vencidos === 1 ? 'vencido' : 'vencidos'}</Insignia>}
+                        {p.pronto > 0 && <Insignia clase="bg-amber-100 text-amber-700">{p.pronto} {p.pronto === 1 ? 'vence pronto' : 'vencen pronto'}</Insignia>}
+                        {p.revisar > 0 && <Insignia clase="bg-slate-100 text-slate-600">{p.revisar} {p.revisar === 1 ? 'fecha a revisar' : 'fechas a revisar'}</Insignia>}
+                        {p.conCita > 0 && <Insignia clase="bg-blue-100 text-blue-700">📅 {p.conCita === 1 ? 'cita sacada' : `${p.conCita} citas sacadas`}</Insignia>}
+                        {p.vencidos + p.pronto + p.revisar + p.conCita === 0 && <Insignia clase="bg-emerald-50 text-emerald-700">✔ Al día</Insignia>}
+                      </div>
                     </div>
-                    <Car className="w-5 h-5 text-blue-400" />
+                    <Car className="w-5 h-5 text-blue-400 shrink-0" />
                   </div>
-                  <div className="space-y-1 mt-4 text-xs">
-                    <div className="flex justify-between"><span className="text-slate-500">Próxima ITV:</span> <span className="font-medium">{v.proximaITV || 'N/A'}</span></div>
-                    <div className="flex justify-between"><span className="text-slate-500">Vencimiento ATP:</span> <span className="font-medium">{v.vencimientoATP || 'N/A'}</span></div>
-                    <div className="flex justify-between"><span className="text-slate-500">Seguro:</span> <span className="font-medium">{v.aseguradora || 'N/A'}</span></div>
+                  <div className="space-y-1 mt-3 text-xs">
+                    {TRAMITES.map(t => {
+                      const f = fechas.find(a => a.clave === t.clave);
+                      return (
+                        <div key={t.clave} className="flex justify-between gap-2">
+                          <span className="text-slate-500">{t.label}:</span>
+                          <span className={f ? (f.cita ? 'text-blue-700 font-bold' : COLOR_FECHA[f.status]) : 'text-slate-300'}
+                            title={f ? (f.cita ? `Cita ${f.cita.fecha}` : f.text) : 'Sin fecha'}>
+                            {f ? `${f.date}${f.status === 'unknown' ? ' (?)' : ''}` : '—'}
+                          </span>
+                        </div>
+                      );
+                    })}
+                    <div className="flex justify-between"><span className="text-slate-500">Seguro:</span> <span className="font-medium">{v.aseguradora || '—'}</span></div>
                     <div className="pt-2 mt-1 border-t border-slate-50">
                       <div className="flex justify-between items-center">
                         <span className="text-slate-500">Documentación:</span>

@@ -11,7 +11,7 @@ interface AlertsListProps {
 
 export const AlertsList = ({ alerts, setSelectedVehicle, setIsEditing }: AlertsListProps) => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'danger' | 'warning' | 'success'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'danger' | 'warning' | 'unknown' | 'success'>('all');
   const [sortBy, setBy] = useState<'date' | 'matricula' | 'status'>('status');
 
   const groupedAlerts = useMemo(() => {
@@ -41,7 +41,7 @@ export const AlertsList = ({ alerts, setSelectedVehicle, setIsEditing }: AlertsL
     // Convert back to array
     return Object.values(groups).sort((a, b) => {
       if (sortBy === 'status') {
-        const priority = { danger: 0, warning: 1, success: 2, unknown: 3 };
+        const priority = { danger: 0, warning: 1, unknown: 2, success: 3 };   // una fecha que no se entiende va antes que lo que está en regla
         const getWorstStatus = (als: Alert[]) => Math.min(...als.map(al => priority[al.status.status as keyof typeof priority] ?? 4));
         const pA = getWorstStatus(a.alerts);
         const pB = getWorstStatus(b.alerts);
@@ -88,6 +88,7 @@ export const AlertsList = ({ alerts, setSelectedVehicle, setIsEditing }: AlertsL
               { id: 'all', label: 'Todos' },
               { id: 'danger', label: 'Vencidos' },
               { id: 'warning', label: 'Próximos' },
+              { id: 'unknown', label: 'Fechas a revisar' },
               { id: 'success', label: 'Al día' }
             ].map(f => (
               <button
@@ -141,14 +142,16 @@ export const AlertsList = ({ alerts, setSelectedVehicle, setIsEditing }: AlertsL
                 // Lo que ya tiene cita sacada no pinta la fila de rojo/ámbar: pasa a azul (pendiente de llevar).
                 const hasDanger = group.alerts.some(a => a.status.status === 'danger' && !a.cita);
                 const hasWarning = group.alerts.some(a => a.status.status === 'warning' && !a.cita);
+                const hasRevisar = group.alerts.some(a => a.status.status === 'unknown' && !a.cita);
                 const hasCita = group.alerts.some(a => a.cita);
-                
+
                 return (
-                   <tr 
-                    key={group.vehicle.id} 
+                   <tr
+                    key={group.vehicle.id}
                     className={`transition-colors group border-b border-white ${
-                      hasDanger ? 'bg-red-100' : 
-                      hasWarning ? 'bg-amber-100' : 
+                      hasDanger ? 'bg-red-100' :
+                      hasWarning ? 'bg-amber-100' :
+                      hasRevisar ? 'bg-slate-100' :
                       hasCita ? 'bg-blue-50' :
                       'bg-white'
                     }`}
@@ -171,6 +174,8 @@ export const AlertsList = ({ alerts, setSelectedVehicle, setIsEditing }: AlertsL
                             <span className={`text-[9px] px-2.5 py-0.5 rounded-full font-black uppercase tracking-wider ${
                               al.status.status === 'danger' ? 'bg-red-600 text-white shadow-sm' :
                               al.status.status === 'warning' ? 'bg-amber-500 text-white shadow-sm' :
+                              // Una fecha que no se entiende NO es «en regla»: gris, para que alguien la corrija.
+                              al.status.status === 'unknown' ? 'bg-slate-500 text-white shadow-sm' :
                               'bg-emerald-500 text-white shadow-sm'
                             }`}>
                               {al.status.text}
