@@ -19,10 +19,9 @@ export const AlertsList = ({ alerts, setSelectedVehicle, setIsEditing }: AlertsL
     
     // First, filter based on search and status
     const initialFiltered = alerts.filter(al => {
-      const matchesSearch = 
-        al.vehicle.matricula.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        al.vehicle.marca.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        al.type.toLowerCase().includes(searchTerm.toLowerCase());
+      // String(): hay fichas con campos vacíos o que no son texto; sin esto la pestaña se quedaba en blanco.
+      const t = searchTerm.toLowerCase();
+      const matchesSearch = [al.vehicle.matricula, al.vehicle.marca, al.type].some(x => String(x ?? '').toLowerCase().includes(t));
       
       const matchesStatus = statusFilter === 'all' || al.status.status === statusFilter;
       

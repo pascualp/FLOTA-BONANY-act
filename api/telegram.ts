@@ -539,8 +539,11 @@ async function primeraVez(updateId: unknown): Promise<boolean> {
   try {
     await db().collection(COL_UPD).doc(String(updateId)).create({ el: FieldValue.serverTimestamp() });
     return true;
-  } catch {
-    return false;   // Telegram lo reintentó: ya se atendió
+  } catch (e: any) {
+    // SOLO «ya existe» (código 6) quiere decir que Telegram lo reintentó y ya se atendió. Cualquier otro fallo (cuota
+    // agotada, red…) se relanza: antes se tomaba por «repetido» y el mensaje se perdía sin contestar nada.
+    if (e?.code === 6 || /ALREADY_EXISTS/i.test(String(e?.message))) return false;
+    throw e;
   }
 }
 

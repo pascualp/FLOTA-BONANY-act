@@ -1,5 +1,8 @@
 import { differenceInCalendarDays } from 'date-fns';
 import { Vehicle, AlertStatus, ClaveTramite, Cita } from './types';
+// «.js» aunque sea .ts: este archivo también lo usan las funciones de Vercel (módulos ES de Node), y sin la extensión
+// no encuentran un import que no sea solo de tipos.
+import { documentosExigidos, type Categoria } from './documentos.js';
 
 // Los tres trámites con fecha de la flota: clave corta, nombre en pantalla y campo del vehículo.
 export const TRAMITES: { clave: ClaveTramite; label: string; campo: 'proximaITV' | 'vencimientoATP' | 'revisionTacografo' }[] = [
@@ -84,16 +87,26 @@ export const getMissingFields = (v: Vehicle) => {
   return missing;
 };
 
+// El papel que corresponde a cada trámite (para saber si a este vehículo le toca: ver documentosExigidos).
+const PAPEL: Record<ClaveTramite, Categoria> = { itv: 'ITV', atp: 'ATP', tacografo: 'Tacógrafo' };
+
 export const getVehicleAlerts = (v: Vehicle) => {
   const alerts: { label: string; status: 'danger' | 'warning' | 'success' | 'unknown'; text: string; date: string; clave: ClaveTramite; cita?: Cita }[] = [];
+  const exigidos = documentosExigidos(v);
 
   TRAMITES.forEach(t => {
     const value = v[t.campo];
-    // Vacío o «N/A» / «no aplica»: ese trámite no le toca a este vehículo.
-    if (value && !noAplica(value)) {
-      const st = getAlertStatus(value, v.priority || 'medium');
-      alerts.push({ label: t.label, ...st, date: value, clave: t.clave, cita: v.citas?.[t.clave] });
+    if (noAplica(value)) return;   // «N/A», «no aplica»…: quien lo escribió dice que no le toca
+    if (!value || !String(value).trim()) {
+      // Sin fecha: si el trámite le toca (la ITV siempre; ATP si lleva frío; tacógrafo si pasa de 3.500 kg) es un dato
+      // que falta, no un vehículo «al día».
+      if (exigidos.includes(PAPEL[t.clave])) {
+        alerts.push({ label: t.label, status: 'unknown', text: 'Falta la fecha', date: 'sin fecha', clave: t.clave, cita: v.citas?.[t.clave] });
+      }
+      return;
     }
+    const st = getAlertStatus(value, v.priority || 'medium');
+    alerts.push({ label: t.label, ...st, date: value, clave: t.clave, cita: v.citas?.[t.clave] });
   });
 
   return alerts;

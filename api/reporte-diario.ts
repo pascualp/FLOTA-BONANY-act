@@ -47,7 +47,7 @@ function montarCorreo({ conCita, vencidos, proximos, revisar }: Resumen, hoy: st
     ${conCita.length ? `<h3 style="color:#2563eb;margin-bottom:10px;">📅 CITAS SACADAS – pendientes de llevar (${conCita.length})</h3>${tabla(conCita.map((a) => ({ a, derecha: citaCorta(a) })), '#2563eb', '#eff6ff', '#dbeafe')}` : ''}
     ${vencidos.length ? `<h3 style="color:#dc2626;margin-bottom:10px;">⚠️ VENCIDOS (${vencidos.length})</h3>${tabla(vencidos.map((a) => ({ a, derecha: esc(a.date) })), '#dc2626', '#fef2f2', '#fee2e2')}` : ''}
     ${proximos.length ? `<h3 style="color:#d97706;margin-bottom:10px;">🔔 PRÓXIMOS A VENCER (${proximos.length})</h3>${tabla(proximos.map((a) => ({ a, derecha: esc(a.date) })), '#d97706', '#fffbeb', '#fef3c7')}` : ''}
-    ${revisar.length ? `<h3 style="color:#475569;margin-bottom:4px;">❓ FECHAS QUE HAY QUE REVISAR (${revisar.length})</h3><p style="margin:0 0 10px;color:#64748b;font-size:13px;">Están escritas de forma que no se entiende o pone que falta: corrígelas en la app para que avise a tiempo.</p>${tabla(revisar.map((a) => ({ a, derecha: '«' + esc(a.date) + '»' })), '#475569', '#f8fafc', '#e2e8f0')}` : ''}
+    ${revisar.length ? `<h3 style="color:#475569;margin-bottom:4px;">❓ FECHAS QUE HAY QUE REVISAR (${revisar.length})</h3><p style="margin:0 0 10px;color:#64748b;font-size:13px;">Faltan o están escritas de forma que no se entiende: ponlas bien en la app para que avise a tiempo.</p>${tabla(revisar.map((a) => ({ a, derecha: '«' + esc(a.date) + '»' })), '#475569', '#f8fafc', '#e2e8f0')}` : ''}
     <p style="margin-top:24px;"><a href="${URL_APP}" style="color:#2563eb;">Abrir la gestión de flotas</a></p>
     <div style="margin-top:24px;padding-top:16px;border-top:1px solid #e2e8f0;font-size:12px;color:#94a3b8;text-align:center;">
       Correo automático diario del Sistema de Gestión de Flotas Bonany.
@@ -84,7 +84,7 @@ export function textoTelegram({ conCita, vencidos, proximos, revisar }: Resumen)
   if (resto.length) L.push('', '📅 <b>Citas sacadas, pendientes de llevar:</b>', ...resto.map(lineaCita));
   if (vencidos.length) L.push('', `⚠️ <b>VENCIDOS sin cita (${vencidos.length}):</b>`, ...vencidos.map(lineaAlerta));
   if (proximos.length) L.push('', `🔔 <b>Próximos a vencer (${proximos.length}):</b>`, ...proximos.map(lineaAlerta));
-  if (revisar.length) L.push('', `❓ <b>Fechas que no entiendo, corregidlas (${revisar.length}):</b>`, ...revisar.map(lineaAlerta));
+  if (revisar.length) L.push('', `❓ <b>Fechas que faltan o que no entiendo, ponedlas bien (${revisar.length}):</b>`, ...revisar.map(lineaAlerta));
   return L.join('\n');
 }
 
