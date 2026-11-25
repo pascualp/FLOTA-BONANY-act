@@ -112,6 +112,20 @@ export async function enviarVoz(chatId: number | string, audio: Buffer, mime: st
   return j.result;
 }
 
+// Manda un archivo (PDF o foto) como documento de Telegram (multipart; el bot admite hasta 50 MB).
+export async function enviarDocumentoTelegram(chatId: number | string, datos: Buffer, nombre: string, mime: string, pie?: string) {
+  const token = process.env.TELEGRAM_TOKEN;
+  if (!token) throw new Error('Falta TELEGRAM_TOKEN en el servidor');
+  const fd = new FormData();
+  fd.append('chat_id', String(chatId));
+  fd.append('document', new Blob([new Uint8Array(datos)], { type: mime || 'application/octet-stream' }), nombre || 'documento');
+  if (pie) { fd.append('caption', pie.slice(0, 1000)); fd.append('parse_mode', 'HTML'); }
+  const r = await fetch(`https://api.telegram.org/bot${token}/sendDocument`, { method: 'POST', body: fd });
+  const j: any = await r.json().catch(() => ({}));
+  if (!j.ok) throw new Error(`Telegram sendDocument: ${j.description || r.status}`);
+  return j.result;
+}
+
 export async function bajarArchivoTelegram(fileId: string): Promise<{ datos: Buffer; ruta: string }> {
   const f = await tg('getFile', { file_id: fileId });
   const r = await fetch(`https://api.telegram.org/file/bot${process.env.TELEGRAM_TOKEN}/${f.file_path}`);

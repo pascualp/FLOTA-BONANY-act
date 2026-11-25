@@ -48,6 +48,11 @@ export interface VehicleDocument {
   isChunked?: boolean;
   totalChunks?: number;
   uploadedAt: Timestamp;
+  // Desde el 25/11/2026 el archivo está en Google Cloud Storage (bucket bonany-flota-documentos) y aquí solo su ruta.
+  // Los viejos sin storagePath tienen el archivo troceado en /chunks (o en url) hasta que se migren.
+  storagePath?: string;
+  categoria?: string;   // ver CATEGORIAS en documentos.ts
+  subidoPor?: string;
 }
 
 export interface AlertStatus {

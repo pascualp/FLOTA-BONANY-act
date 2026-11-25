@@ -2,10 +2,13 @@ import Anthropic from '@anthropic-ai/sdk';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { MsEdgeTTS, OUTPUT_FORMAT } from 'msedge-tts';
 import {
-  bajarArchivoTelegram, buscarVehiculo, cargarFlota, chatsPermitidos, db, enviarTexto, enviarVoz, escaparHtml as esc,
-  hoyLargo, hoyTexto, normalizarMatricula, tg, TRAMITES, URL_APP,
+  bajarArchivoTelegram, buscarVehiculo, cargarFlota, chatsPermitidos, db, enviarDocumentoTelegram, enviarTexto, enviarVoz,
+  escaparHtml as esc, hoyLargo, hoyTexto, normalizarMatricula, tg, TRAMITES, URL_APP,
 } from './_lib/flota.js';
+import { AVISO_CUOTA, esCuotaAgotada, guardar, leer, rutaNueva } from './_lib/archivos.js';
 import { getVehicleAlerts, parseEsDate, textoCita } from '../src/utils.js';
+import { CATEGORIAS, categoriaDe, esCategoria, estadoDocumentacion, type DocResumen } from '../src/documentos.js';
+import { diasOcupados, planificar, tareasPendientes, textoPlan } from '../src/planificador.js';
 import type { ClaveTramite, Vehicle } from '../src/types.js';
 
 // Agente «Flotas Bonany» en Telegram (/api/telegram, webhook del bot).
@@ -31,7 +34,7 @@ const COL_UPD = 'flota_agente_updates';
 const COL_USUARIOS = 'flota_agente_usuarios';   // quién puede hablar en privado sin estar en el grupo (alta con ✅)
 const MAX_PARES = 8;                 // pares pregunta/respuesta que recuerda por chat
 const CADUCIDAD_MS = 48 * 3600e3;    // un botón ✅ de hace más de 2 días ya no vale
-const TROZO = 600 * 1024;            // igual que la web: trozos de 600 KB de base64
+const MAX_ENVIAR = 3;                // documentos que manda como mucho de una vez
 
 const CAMPOS_EDITABLES = ['marca', 'tipo', 'tipoCaja', 'capacidad', 'fechaMatriculacion', 'bastidor', 'chofer', 'aseguradora', 'poliza'] as const;
 const NOMBRE_TRAMITE: Record<ClaveTramite, string> = { itv: 'ITV', atp: 'ATP', tacografo: 'tacógrafo' };
@@ -39,11 +42,14 @@ const NOMBRE_TRAMITE: Record<ClaveTramite, string> = { itv: 'ITV', atp: 'ATP', t
 const SISTEMA = `Eres el asistente de la flota de vehículos de Bon Any (frutería con reparto en Mallorca). Hablas por Telegram con Facu y Jordi, que llevan la flota. Contesta siempre en español, corto y claro, en texto normal (sin Markdown: ni asteriscos ni almohadillas).
 
 Qué puedes hacer con tus herramientas:
-- Consultar: ver_flota (todos los vehículos, sus fechas, estado y citas) y ver_vehiculo (uno, con sus datos y documentos).
+- Contestar CUALQUIER consulta sobre la flota (fechas, vencimientos, seguros, pólizas, chóferes, bastidores, documentos, citas…): mira los datos con ver_flota, ver_vehiculo o ver_documentacion y contesta con lo que diga la app. Si un dato no está en la app, dilo; no lo inventes.
+- Consultar: ver_flota (todos los vehículos, sus fechas, estado y citas) y ver_vehiculo (uno, con sus datos, sus documentos y qué papeles le faltan).
+- Documentación: ver_documentacion (qué papeles faltan en toda la flota o en un vehículo). Si piden un documento («mándame la ficha técnica del 9151», «pásame el seguro del 5331»), mándalo con enviar_documento.
+- Planificar revisiones: planificar_revisiones reparte las ITV, ATP y tacógrafos pendientes (como mucho un vehículo al día, de lunes a viernes por la tarde, primero lo vencido). Úsalo si preguntan qué toca llevar, cuándo, o piden organizar las citas. Es una PROPUESTA: la cita de verdad hay que pedirla.
 - Apuntar una cita YA SACADA (ITV, ATP o tacógrafo): proponer_cita. «Hemos sacado / pedido / tenemos cita de la ITV» significa cita sacada y pendiente de llevar el vehículo.
 - Cuando el trámite ya se ha hecho («ya pasó la ITV», «la hemos pasado»): proponer_nueva_fecha con la fecha del PRÓXIMO vencimiento. Esto también quita la cita. Si no te dan la fecha nueva, pregúntala; no la inventes. Si mandan la tarjeta o el informe de la ITV, léela de ahí.
 - Anular una cita: proponer_quitar_cita. Cambiar un dato (chófer, aseguradora, póliza…): proponer_cambio. Dar de alta un vehículo: proponer_alta_vehiculo.
-- Guardar la foto o el PDF que viene en el mensaje en los documentos de un vehículo: proponer_guardar_archivo.
+- Guardar la foto o el PDF que viene en el mensaje en los documentos de un vehículo: proponer_guardar_archivo, diciendo SIEMPRE de qué tipo es (categoria): Permiso de circulación, Ficha técnica (también la «tarjeta ITV»), Póliza, ITV (informe de inspección), ATP, Tacógrafo, Carga y descarga, Tarjeta de transporte u Otro.
 
 Reglas:
 - Tú NUNCA guardas nada. Las herramientas proponer_* solo preparan el cambio y mandan un botón ✅ para que lo confirmen. No digas que está guardado: di que lo confirmen con el botón.
@@ -66,7 +72,10 @@ const HERRAMIENTAS: Anthropic.Beta.Messages.BetaToolUnion[] = [
   { name: 'proponer_nueva_fecha', description: 'El trámite ya se hizo: propone poner la fecha del PRÓXIMO vencimiento (y quitar la cita). Botón ✅ para confirmar.', input_schema: { type: 'object', properties: { matricula, tramite, fecha }, required: ['matricula', 'tramite', 'fecha'] } },
   { name: 'proponer_cambio', description: 'Propone cambiar un dato del vehículo. Botón ✅ para confirmar.', input_schema: { type: 'object', properties: { matricula, campo: { type: 'string', enum: [...CAMPOS_EDITABLES] }, valor: { type: 'string' } }, required: ['matricula', 'campo', 'valor'] } },
   { name: 'proponer_alta_vehiculo', description: 'Propone dar de alta un vehículo nuevo. Botón ✅ para confirmar.', input_schema: { type: 'object', properties: { matricula, marca: { type: 'string' }, tipo: { type: 'string', description: 'CAMIÓN, FURGONETA, COCHE…' }, chofer: { type: 'string' }, tipoCaja: { type: 'string' }, capacidad: { type: 'string' }, bastidor: { type: 'string' }, fechaMatriculacion: fecha, proximaITV: fecha, vencimientoATP: fecha, revisionTacografo: fecha, aseguradora: { type: 'string' }, poliza: { type: 'string' } }, required: ['matricula', 'marca', 'tipo'] } },
-  { name: 'proponer_guardar_archivo', description: 'Propone guardar la foto o el PDF que viene en ESTE mensaje en los documentos del vehículo. Botón ✅ para confirmar.', input_schema: { type: 'object', properties: { matricula, nombre: { type: 'string', description: 'Nombre corto del documento, p. ej. «Tarjeta ITV 2026»' } }, required: ['matricula', 'nombre'] } },
+  { name: 'proponer_guardar_archivo', description: 'Propone guardar la foto o el PDF que viene en ESTE mensaje en los documentos del vehículo. Botón ✅ para confirmar.', input_schema: { type: 'object', properties: { matricula, nombre: { type: 'string', description: 'Nombre corto del documento, p. ej. «Tarjeta ITV 2026»' }, categoria: { type: 'string', enum: [...CATEGORIAS], description: 'Tipo de documento' } }, required: ['matricula', 'nombre', 'categoria'] } },
+  { name: 'ver_documentacion', description: 'Qué papeles le faltan a cada vehículo (permiso, ficha técnica, póliza, ITV; ATP si es frigorífico o isotermo; tacógrafo si pasa de 3.500 kg). Con matrícula: el detalle de ese vehículo y sus documentos. Sin matrícula: toda la flota.', input_schema: { type: 'object', properties: { matricula: { ...matricula, description: 'Opcional: solo este vehículo' } } } },
+  { name: 'enviar_documento', description: `Manda por este chat documentos guardados de un vehículo (como mucho ${MAX_ENVIAR}). Filtra por tipo (categoria) o por parte del nombre.`, input_schema: { type: 'object', properties: { matricula, categoria: { type: 'string', enum: [...CATEGORIAS] }, nombre: { type: 'string', description: 'Parte del nombre del archivo, si lo saben' } }, required: ['matricula'] } },
+  { name: 'planificar_revisiones', description: 'Propuesta de calendario para llevar los vehículos a ITV / ATP / tacógrafo: lo vencido o que vence en 45 días y sin cita, un vehículo al día, lunes a viernes por la tarde, sin festivos y sin pisar días que ya tienen cita.', input_schema: { type: 'object', properties: {} } },
 ];
 
 interface Adjunto { fileId: string; nombre: string; mime: string }
@@ -87,6 +96,16 @@ async function vehiculoDe(ctx: Ctx, m: unknown): Promise<Vehicle> {
   const v = buscarVehiculo(await flotaDe(ctx), m);
   if (!v) throw new Error(`No encuentro la matrícula «${m}» en la flota. Usa ver_flota para buscarla.`);
   return v;
+}
+
+// Fichas de los documentos de un vehículo (solo campos pequeños: el archivo está en el almacén o, si es viejo, en /chunks).
+async function docsDe(vehicleId: string) {
+  const snap = await db().collection('documents').where('vehicleId', '==', vehicleId)
+    .select('name', 'type', 'categoria', 'storagePath', 'uploadedAt').get();
+  return snap.docs.map((d) => ({
+    id: d.id, name: d.get('name') as string, type: d.get('type') as string, categoria: d.get('categoria') as string | undefined,
+    storagePath: d.get('storagePath') as string | undefined, subido: d.get('uploadedAt')?.toDate?.().toISOString().slice(0, 10),
+  }));
 }
 
 // ---------- Herramientas ----------
@@ -114,12 +133,60 @@ async function ejecutar(ctx: Ctx, nombre: string, e: any): Promise<string> {
     }
     case 'ver_vehiculo': {
       const v = await vehiculoDe(ctx, e.matricula);
-      const docs = await db().collection('documents').where('vehicleId', '==', v.id).get();
+      const docs = await docsDe(v.id!);
       const { createdAt, ...datos } = v as any;
+      const estado = estadoDocumentacion(v, docs);
       return JSON.stringify({
         ...datos,
-        documentos: docs.docs.map((d) => ({ nombre: d.get('name'), tipo: d.get('type'), subido: d.get('uploadedAt')?.toDate?.().toISOString().slice(0, 10) })),
+        documentos: docs.map((d) => ({ nombre: d.name, categoria: categoriaDe(d), subido: d.subido })),
+        papelesQueFaltan: estado.faltan,
       });
+    }
+    case 'ver_documentacion': {
+      if (e.matricula) {
+        const v = await vehiculoDe(ctx, e.matricula);
+        const est = estadoDocumentacion(v, await docsDe(v.id!));
+        return `${v.matricula}: ${est.completos} de ${est.total} papeles.\n` + est.exigidos
+          .map((x) => `- ${x.categoria}: ${x.docs.length ? 'SÍ (' + x.docs.map((d) => d.name).join('; ') + ')' : 'FALTA'}`).join('\n');
+      }
+      // Toda la flota: una sola lectura de las fichas de documentos (ligeras).
+      const todos = await db().collection('documents').select('vehicleId', 'name', 'categoria').get();
+      const porVeh = new Map<string, DocResumen[]>();
+      todos.docs.forEach((d) => { const vid = d.get('vehicleId'); if (vid) (porVeh.get(vid) || porVeh.set(vid, []).get(vid)!).push({ name: d.get('name'), categoria: d.get('categoria') }); });
+      const flota = (await flotaDe(ctx)).slice().sort((a, b) => a.matricula.localeCompare(b.matricula));
+      const lineas = flota.map((v) => ({ v, est: estadoDocumentacion(v, porVeh.get(v.id!) || []) }));
+      const incompletos = lineas.filter((l) => l.est.faltan.length);
+      return `${flota.length} vehículos; ${incompletos.length} con documentación incompleta.\n` +
+        incompletos.map((l) => `${l.v.matricula}: falta ${l.est.faltan.join(', ')}`).join('\n');
+    }
+    case 'enviar_documento': {
+      const v = await vehiculoDe(ctx, e.matricula);
+      let docs = await docsDe(v.id!);
+      if (esCategoria(e.categoria)) docs = docs.filter((d) => categoriaDe(d) === e.categoria);
+      const trozo = String(e.nombre || '').toLowerCase().trim();
+      if (trozo) docs = docs.filter((d) => String(d.name || '').toLowerCase().includes(trozo));
+      if (docs.length === 0) return `${v.matricula} no tiene ningún documento así guardado.`;
+      const enviados: string[] = [];
+      const pendientes: string[] = [];
+      for (const d of docs.slice(0, MAX_ENVIAR)) {
+        if (!d.storagePath) { pendientes.push(d.name || 'documento'); continue; }   // viejo, aún troceado en la base
+        await tg('sendChatAction', { chat_id: ctx.chatId, action: 'upload_document' }).catch(() => {});
+        await enviarDocumentoTelegram(ctx.chatId, await leer(d.storagePath), d.name || 'documento', d.type || '',
+          `📄 <b>${esc(v.matricula)}</b> · ${esc(categoriaDe(d))}`);
+        enviados.push(d.name || 'documento');
+      }
+      return [
+        enviados.length ? `Enviados ${enviados.length}: ${enviados.join('; ')}.` : '',
+        pendientes.length ? `No se pueden mandar todavía (son de los antiguos, se están pasando al almacén nuevo): ${pendientes.join('; ')}.` : '',
+        docs.length > MAX_ENVIAR ? `Hay ${docs.length - MAX_ENVIAR} más; pide el que quieras por su nombre o tipo.` : '',
+      ].filter(Boolean).join(' ');
+    }
+    case 'planificar_revisiones': {
+      const flota = await flotaDe(ctx);
+      const [d, m, a] = hoyTexto().split('/').map(Number);
+      const hoy = new Date(a, m - 1, d);
+      const plan = planificar(tareasPendientes(flota, hoy), diasOcupados(flota), hoy);
+      return 'Propuesta (1 vehículo al día, lunes a viernes por la tarde):\n' + textoPlan(plan);
     }
     case 'proponer_cita': {
       const v = await vehiculoDe(ctx, e.matricula);
@@ -169,10 +236,12 @@ async function ejecutar(ctx: Ctx, nombre: string, e: any): Promise<string> {
     case 'proponer_guardar_archivo': {
       if (!ctx.adjunto) throw new Error('Este mensaje no trae ninguna foto ni archivo. Pide que lo manden.');
       const v = await vehiculoDe(ctx, e.matricula);
+      const categoria = esCategoria(e.categoria) ? e.categoria : 'Otro';
       const base = textoLimpio(e.nombre) || 'Documento';
       const ext = ctx.adjunto.nombre.includes('.') ? ctx.adjunto.nombre.slice(ctx.adjunto.nombre.lastIndexOf('.')) : '';
       const nombre = ext && !base.toLowerCase().endsWith(ext.toLowerCase()) ? base + ext : base;
-      return proponer(ctx, 'archivo', { ...ctx.adjunto, nombreOriginal: ctx.adjunto.nombre, vehicleId: v.id, matricula: v.matricula, nombre }, `${v.matricula}: guardar «${nombre}» en sus documentos`);
+      return proponer(ctx, 'archivo', { ...ctx.adjunto, nombreOriginal: ctx.adjunto.nombre, vehicleId: v.id, matricula: v.matricula, nombre, categoria },
+        `${v.matricula}: guardar «${nombre}» (${categoria}) en sus documentos`);
     }
   }
   throw new Error(`Herramienta desconocida: ${nombre}`);
@@ -203,21 +272,16 @@ async function aplicar(p: any, quien: string) {
       return;
     }
     case 'archivo': {
-      // Igual que la subida de la web: documento ligero + subcolección «chunks» con el data URL en trozos.
+      // 25/11/2026: el archivo va a Google Cloud Storage y en Firestore solo su ficha (antes iba troceado en la base,
+      // y los archivos agotaron su cuota diaria). Primero el archivo y luego la ficha: si algo falla a medias, no queda
+      // una ficha que apunte a nada.
       const { datos } = await bajarArchivoTelegram(d.fileId);
-      const dataUrl = `data:${d.mime};base64,${datos.toString('base64')}`;
-      const total = Math.ceil(dataUrl.length / TROZO);
-      const ref = await db().collection('documents').add({
-        vehicleId: d.vehicleId, name: d.nombre, type: d.mime, size: datos.length, url: '',
-        isChunked: true, totalChunks: total, uploadedAt: FieldValue.serverTimestamp(), subidoPor: `Telegram · ${quien}`,
+      const ruta = rutaNueva(d.vehicleId, d.nombre);
+      await guardar(ruta, datos, d.mime);
+      await db().collection('documents').add({
+        vehicleId: d.vehicleId, name: d.nombre, type: d.mime, size: datos.length, categoria: esCategoria(d.categoria) ? d.categoria : 'Otro',
+        url: '', isChunked: false, storagePath: ruta, uploadedAt: FieldValue.serverTimestamp(), subidoPor: `Telegram · ${quien}`,
       });
-      for (let b = 0; b < total; b += 4) {
-        const lote = db().batch();
-        for (let i = b; i < Math.min(b + 4, total); i++) {
-          lote.set(ref.collection('chunks').doc(), { index: i, data: dataUrl.slice(i * TROZO, (i + 1) * TROZO) });
-        }
-        await lote.commit();
-      }
       return;
     }
   }
@@ -256,6 +320,7 @@ export async function agente(ctx: Ctx, historial: { u: string; a: string }[], co
       try {
         resultados.push({ type: 'tool_result', tool_use_id: u.id, content: await ejecutar(ctx, u.name, u.input) });
       } catch (err: any) {
+        if (esCuotaAgotada(err)) throw err;   // la base no deja leer hasta las 9:00: se contesta con el aviso claro
         resultados.push({ type: 'tool_result', tool_use_id: u.id, content: 'Error: ' + (err?.message || err), is_error: true });
       }
     }
@@ -553,25 +618,28 @@ export default async function telegram(req: any, res: any) {
   const update = req.body || {};
   const chatId = update.message?.chat?.id ?? update.callback_query?.message?.chat?.id;
   if (chatId === undefined) return res.status(200).json({ ok: true });
-  if (!(await permitido(update, chatId))) {
-    console.log(`[telegram] chat no permitido ${chatId} (${update.message?.chat?.title || update.message?.from?.first_name || ''})`);
-    // Un privado de alguien nuevo: se pide permiso en el grupo con ✅/❌ (antes se ignoraba sin contestar).
-    if (update.message?.chat?.type === 'private' && !update.message.from?.is_bot && (await primeraVez(update.update_id))) {
-      await pedirAcceso(update.message).catch((e) => console.error('[telegram] no pude pedir el acceso:', e));
-    }
-    return res.status(200).json({ ok: true });
-  }
-  if (update.message?.from?.is_bot) return res.status(200).json({ ok: true });
 
-  // Telegram reintenta si tardamos: cada update se atiende una sola vez.
-  if (!(await primeraVez(update.update_id))) return res.status(200).json({ ok: true, repetido: true });
-
+  // Siempre se contesta 200 a Telegram (si no, reintenta el mismo mensaje una y otra vez).
   try {
+    if (!(await permitido(update, chatId))) {
+      console.log(`[telegram] chat no permitido ${chatId} (${update.message?.chat?.title || update.message?.from?.first_name || ''})`);
+      // Un privado de alguien nuevo: se pide permiso en el grupo con ✅/❌ (antes se ignoraba sin contestar).
+      if (update.message?.chat?.type === 'private' && !update.message.from?.is_bot && (await primeraVez(update.update_id))) {
+        await pedirAcceso(update.message).catch((e) => console.error('[telegram] no pude pedir el acceso:', e));
+      }
+      return res.status(200).json({ ok: true });
+    }
+    if (update.message?.from?.is_bot) return res.status(200).json({ ok: true });
+
+    // Telegram reintenta si tardamos: cada update se atiende una sola vez.
+    if (!(await primeraVez(update.update_id))) return res.status(200).json({ ok: true, repetido: true });
+
     if (update.callback_query) await atenderBoton(update.callback_query);
     else if (update.message) await atenderMensaje(update.message);
   } catch (err: any) {
     console.error('[telegram] error:', err);
-    await tg('sendMessage', { chat_id: chatId, text: `⚠️ Algo ha fallado: ${String(err?.message || err).slice(0, 300)}` }).catch(() => {});
+    const texto = esCuotaAgotada(err) ? `⚠️ ${AVISO_CUOTA}` : `⚠️ Algo ha fallado: ${String(err?.message || err).slice(0, 300)}`;
+    await tg('sendMessage', { chat_id: chatId, text: texto }).catch(() => {});
   }
   return res.status(200).json({ ok: true });
 }

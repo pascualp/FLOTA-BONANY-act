@@ -2,6 +2,7 @@ import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import reporteDiario from "./api/reporte-diario";
+import documentos from "./api/documentos";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -14,6 +15,8 @@ async function startServer() {
 
   // Reporte de vencimientos por correo (misma función que usa Vercel en /api/reporte-diario)
   app.all("/api/reporte-diario", reporteDiario);
+  // Documentos (subir/bajar/borrar con Google Cloud Storage): la misma función que /api/documentos en Vercel
+  app.all("/api/documentos", documentos);
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
