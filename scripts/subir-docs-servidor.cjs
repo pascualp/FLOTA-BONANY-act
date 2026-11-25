@@ -45,7 +45,8 @@ const limpio = (n) => String(n || 'documento').normalize('NFD').replace(/[\u0300
     const v = vehs.filter((d) => norm(d.get('matricula')) === mat);
     if (v.length !== 1) { console.log(`!! ${mat}: ${v.length} fichas en la flota → no toco este vehículo`); problemas++; continue; }
     for (const [rel, codigo] of docs) {
-      const ruta = `${SERVIDOR}/${carpeta}/${rel}`;
+      // «carpeta» puede ser una ruta completa (p. ej. papeles escaneados en la oficina) en vez de una del servidor.
+      const ruta = /^([A-Za-z]:|\/\/)/.test(carpeta) ? `${carpeta}/${rel}` : `${SERVIDOR}/${carpeta}/${rel}`;
       const categoria = CATEGORIA[codigo] || 'Otro';
       if (!fs.existsSync(ruta)) { console.log(`!! ${mat} ${categoria}: NO EXISTE ${rel}`); problemas++; continue; }
       const datos = fs.readFileSync(ruta);
