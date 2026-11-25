@@ -91,7 +91,8 @@
     "4666HWY": {
       "confianza": "supuesto",
       "vencimientoSeguro": "30/04/2027",
-      "motivo": "Allianz 041394169, papel de 2017, se renueva cada 30/04"
+      "motivo": "Allianz 041394169, papel de 2017, se renueva cada 30/04; ATP FAVORABLE el 07/10/2026 (OCA, certificado 02159849), válida hasta 04/2029",
+      "vencimientoATP": "30/04/2029"
     },
     "5254JWZ": {
       "confianza": "supuesto",
@@ -124,7 +125,8 @@
     "6221LJM": {
       "confianza": "supuesto",
       "vencimientoSeguro": "17/05/2027",
-      "motivo": "FIATC 20-6.949.468, vence cada 17/05"
+      "motivo": "FIATC 20-6.949.468, vence cada 17/05; ATP FAVORABLE el 15/10/2026 (OCA), válida hasta 10/2029",
+      "vencimientoATP": "31/10/2029"
     },
     "6830MFW": {
       "confianza": "supuesto",
