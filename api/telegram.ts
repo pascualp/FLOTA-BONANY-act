@@ -9,7 +9,8 @@ import { getVehicleAlerts, parseEsDate, textoCita } from '../src/utils.js';
 import type { ClaveTramite, Vehicle } from '../src/types.js';
 
 // Agente «Flotas Bonany» en Telegram (/api/telegram, webhook del bot).
-// Lo usan Facu y Jordi (grupo + privados: lista TELEGRAM_CHATS, o estar en el grupo). Claude consulta la flota y PROPONE cambios;
+// Lo usan Facu y Jordi (grupo + privados: lista TELEGRAM_CHATS, estar en el grupo, o alta con ✅ desde el grupo).
+// Claude consulta la flota y PROPONE cambios;
 // cada propuesta queda en flota_agente_pendientes y solo se escribe en la app cuando alguien pulsa ✅.
 //
 // Audios (23/11, Facu: «que conteste por voz y que entienda también por audio»): las notas de voz se pasan a texto con
@@ -27,6 +28,7 @@ const MODELO = 'claude-opus-5-5';
 const COL_PEND = 'flota_agente_pendientes';
 const COL_CHATS = 'flota_agente_chats';
 const COL_UPD = 'flota_agente_updates';
+const COL_USUARIOS = 'flota_agente_usuarios';   // quién puede hablar en privado sin estar en el grupo (alta con ✅)
 const MAX_PARES = 8;                 // pares pregunta/respuesta que recuerda por chat
 const CADUCIDAD_MS = 48 * 3600e3;    // un botón ✅ de hace más de 2 días ya no vale
 const TROZO = 600 * 1024;            // igual que la web: trozos de 600 KB de base64
@@ -425,6 +427,8 @@ async function atenderBoton(cq: any) {
   const editar = (text: string) =>
     tg('editMessageText', { chat_id: chatId, message_id: cq.message.message_id, text, parse_mode: 'HTML' }).catch(() => {});
 
+  if (accion === 'alta' || accion === 'veto') return decidirAcceso(accion, id, quien, contestar, editar);
+
   const ref = db().collection(COL_PEND).doc(id || 'x');
   const p = (await ref.get()).data();
   if (!p || p.chatId !== chatId) return contestar('No encuentro ese cambio');
@@ -461,15 +465,80 @@ async function atenderBoton(cq: any) {
   }
 }
 
+// ---------- Alta de personas nuevas en privado (25/11, Facu: «quiero que Jordi pueda hablar directamente con el agente») ----------
+// Alguien que no está en el grupo escribe al bot → el bot pide permiso EN EL GRUPO con ✅/❌ → con ✅ ya puede hablar a solas.
+// Como todo lo demás: nada se da por bueno sin que alguien del grupo pulse el botón.
+const gruposDeLaLista = () => [...chatsPermitidos()].filter((c) => c.startsWith('-'));
+
+async function primeraVez(updateId: unknown): Promise<boolean> {
+  try {
+    await db().collection(COL_UPD).doc(String(updateId)).create({ el: FieldValue.serverTimestamp() });
+    return true;
+  } catch {
+    return false;   // Telegram lo reintentó: ya se atendió
+  }
+}
+
+async function pedirAcceso(msg: any) {
+  const de = msg.from;
+  const grupo = gruposDeLaLista()[0];
+  if (!de?.id || !grupo) return;
+  const nombre = [de.first_name, de.last_name].filter(Boolean).join(' ') || 'Sin nombre';
+  const ref = db().collection(COL_USUARIOS).doc(String(de.id));
+  try {
+    // create() falla si ya existe: la petición llega al grupo UNA sola vez por persona.
+    await ref.create({ nombre, usuario: de.username || '', estado: 'pendiente', pedido: FieldValue.serverTimestamp() });
+  } catch {
+    if ((await ref.get()).get('estado') === 'pendiente') {
+      await enviarTexto(msg.chat.id, 'Sigo esperando a que me den permiso en el grupo de la flota. En cuanto lo tenga, te aviso por aquí.');
+    }
+    return;   // rechazado: no se contesta
+  }
+  const escrito = String(msg.text || msg.caption || (msg.voice ? '(un audio)' : '(sin texto)')).slice(0, 200);
+  await enviarTexto(grupo,
+    `🔑 <b>${esc(nombre)}</b>${de.username ? ' (@' + esc(de.username) + ')' : ''} quiere hablar con el agente en privado.\n` +
+    `Ha escrito: «${esc(escrito)}»\n¿Le dejo?`,
+    { reply_markup: { inline_keyboard: [[{ text: '✅ Sí, dejarle', callback_data: `alta:${de.id}` }, { text: '❌ No', callback_data: `veto:${de.id}` }]] } });
+  await enviarTexto(msg.chat.id,
+    `Hola ${esc(de.first_name || '')}, soy el asistente de la flota de Bon Any. Todavía no te conozco: he pedido permiso en el grupo de la flota. En cuanto me lo den, te aviso por aquí.`);
+}
+
+async function decidirAcceso(accion: string, id: string, quien: string,
+  contestar: (t: string) => Promise<unknown>, editar: (t: string) => Promise<unknown>) {
+  if (!/^\d+$/.test(id || '')) return contestar('Petición no válida');
+  const ref = db().collection(COL_USUARIOS).doc(id);
+  const nuevo = accion === 'alta' ? 'permitido' : 'rechazado';
+  // En una transacción, para que dos pulsaciones seguidas no manden dos bienvenidas.
+  const antes = await db().runTransaction(async (t) => {
+    const s = await t.get(ref);
+    if (!s.exists || s.get('estado') !== 'pendiente') return s.data() || null;
+    t.update(ref, { estado: nuevo, decididoPor: quien, decidido: FieldValue.serverTimestamp() });
+    return { ...s.data(), cambiado: true } as any;
+  });
+  if (!antes) return contestar('No encuentro esa petición');
+  if (!antes.cambiado) return contestar(antes.estado === 'permitido' ? 'Ya tenía permiso' : 'Ya se le dijo que no');
+  if (nuevo === 'rechazado') {
+    await editar(`❌ ${esc(antes.nombre)} no puede hablar con el agente.\nLo decidió ${esc(quien)}`);
+    return contestar('Hecho');
+  }
+  await editar(`✅ ${esc(antes.nombre)} ya puede hablar con el agente en privado.\nLe dejó ${esc(quien)}`);
+  await enviarTexto(id,
+    `✅ Ya está: ${esc(quien)} te ha dado permiso. Pregúntame lo que necesites de la flota, por ejemplo «¿qué hay pendiente?», ` +
+    `o dime «hemos sacado la ITV del 9151KWJ para el martes». También me puedes mandar fotos, PDF y audios.`)
+    .catch((e) => console.error('[telegram] no pude dar la bienvenida:', e));
+  return contestar('Hecho');
+}
+
 // Un privado que no está en TELEGRAM_CHATS vale si esa persona está en uno de los grupos de la lista (los que empiezan
-// por «-»). Así Jordi —o quien Facu meta en el grupo— puede hablar con el bot a solas sin apuntar su número a mano.
+// por «-») o si alguien del grupo le dio el alta con ✅ (flota_agente_usuarios).
 async function permitido(update: any, chatId: number): Promise<boolean> {
   const lista = chatsPermitidos();
   if (lista.has(String(chatId))) return true;
   const chat = update.message?.chat ?? update.callback_query?.message?.chat;
   const userId = update.message?.from?.id ?? update.callback_query?.from?.id;
   if (chat?.type !== 'private' || !userId) return false;
-  for (const grupo of [...lista].filter((c) => c.startsWith('-'))) {
+  if ((await db().collection(COL_USUARIOS).doc(String(userId)).get()).get('estado') === 'permitido') return true;
+  for (const grupo of gruposDeLaLista()) {
     const m = await tg('getChatMember', { chat_id: grupo, user_id: userId }).catch(() => null);
     if (m && (['creator', 'administrator', 'member'].includes(m.status) || (m.status === 'restricted' && m.is_member))) return true;
   }
@@ -486,16 +555,16 @@ export default async function telegram(req: any, res: any) {
   if (chatId === undefined) return res.status(200).json({ ok: true });
   if (!(await permitido(update, chatId))) {
     console.log(`[telegram] chat no permitido ${chatId} (${update.message?.chat?.title || update.message?.from?.first_name || ''})`);
+    // Un privado de alguien nuevo: se pide permiso en el grupo con ✅/❌ (antes se ignoraba sin contestar).
+    if (update.message?.chat?.type === 'private' && !update.message.from?.is_bot && (await primeraVez(update.update_id))) {
+      await pedirAcceso(update.message).catch((e) => console.error('[telegram] no pude pedir el acceso:', e));
+    }
     return res.status(200).json({ ok: true });
   }
   if (update.message?.from?.is_bot) return res.status(200).json({ ok: true });
 
   // Telegram reintenta si tardamos: cada update se atiende una sola vez.
-  try {
-    await db().collection(COL_UPD).doc(String(update.update_id)).create({ el: FieldValue.serverTimestamp() });
-  } catch {
-    return res.status(200).json({ ok: true, repetido: true });
-  }
+  if (!(await primeraVez(update.update_id))) return res.status(200).json({ ok: true, repetido: true });
 
   try {
     if (update.callback_query) await atenderBoton(update.callback_query);
