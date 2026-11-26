@@ -4,7 +4,8 @@
 import assert from 'node:assert/strict';
 import { getAlertStatus, getVehicleAlerts, noAplica, papelesCaducados, parseEsDate, problemasDe, aFechaInput, deFechaInput, normalizarMatricula, conCambio, nuevoCambio, HISTORIAL_MAX } from '../src/utils.ts';
 import { tieneAcceso } from '../src/acceso.ts';
-import { leerImporte, gastoPorAnio, diaDe, refReparacion } from '../src/reparaciones.ts';
+import { leerImporte, gastoPorAnio, diaDe, refReparacion, ultimaDe } from '../src/reparaciones.ts';
+import { arregladaPor, queArregla } from '../src/incidencias.ts';
 import { esFestivo, planificar, tareasPendientes } from '../src/planificador.ts';
 import type { Vehicle } from '../src/types.ts';
 
@@ -101,6 +102,29 @@ prueba('importes y gasto por año', () => {
   assert.equal(diaDe('05/03/2026'), '2026-03-05');
   const g = gastoPorAnio([{ fecha: '', dia: '2026-02-01', que: 'a', importe: 100 }, { fecha: '', dia: '2026-03-01', que: 'b', importe: 23.5 }]);
   assert.deepEqual(g['2026'], { total: 123.5, n: 2 });
+});
+prueba('un aviso del taller que arregla una factura posterior NO queda como incidencia', () => {
+  const reps = [
+    { fecha: '28/09/2026', que: '2 neumáticos delanteros 195/75 R16 Falken, válvulas y equilibrado' },
+    { fecha: '31/10/2026', que: 'Frenos: pérdida de líquido, discos, pastillas, sensores y pinza nuevos' },
+  ];
+  assert.equal(arregladaPor('Pastillas de freno delanteras para cambiar', '28/09/2026', reps)?.fecha, '31/10/2026');
+  assert.equal(arregladaPor('Embrague patina', '28/09/2026', reps), undefined);          // nada que ver
+  assert.equal(arregladaPor('Frenos', '01/11/2026', reps), undefined);                    // la reparación es ANTERIOR
+});
+prueba('una reparación nueva dice qué incidencia pendiente arregla (y no la suya propia)', () => {
+  const incs = [
+    { id: 'a', texto: 'Pastillas de freno delanteras para cambiar', fecha: '28/09/2026', origen: 'Neuretec', repId: 'r1' },
+    { id: 'b', texto: 'Embrague patina', fecha: '01/10/2026', origen: 'Telegram' },
+    { id: 'c', texto: 'Ruido en los frenos', fecha: '05/11/2026', origen: 'Telegram' },   // POSTERIOR a la reparación
+  ];
+  assert.deepEqual(queArregla({ fecha: '31/10/2026', que: 'Frenos: discos, pastillas y pinza nuevos' }, incs).map((i) => i.id), ['a']);
+  assert.deepEqual(queArregla({ fecha: '28/09/2026', que: 'Pastillas', id: 'r1' }, incs), []);   // su propio aviso
+});
+prueba('la «última reparación» no retrocede al apuntar una factura vieja', () => {
+  assert.equal(ultimaDe([{ fecha: '31/10/2026' }, { fecha: '25/09/2026' }]), '31/10/2026');
+  assert.equal(ultimaDe([{ fecha: '22/10/2026' }, { fecha: '' }, { fecha: '31/10/2026' }]), '31/10/2026');
+  assert.equal(ultimaDe([]), '');
 });
 prueba('la misma factura por Telegram y por el importador da la misma clave', () => {
   const bot = refReparacion('8031 MHJ', '25/09/2026', '#2026/002316');

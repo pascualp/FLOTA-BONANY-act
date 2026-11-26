@@ -33,11 +33,25 @@ const lista = JSON.parse(fs.readFileSync(listaRuta, 'utf8'));
 const norm = (m) => String(m || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 const sha = (b) => crypto.createHash('sha256').update(b).digest('hex');
 const diaDe = (f) => { const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(f || ''); return m ? `${m[3]}-${m[2]}-${m[1]}` : ''; };
+
+// ¿Una reparación POSTERIOR ya arregla el aviso? Copia de arregladaPor() de src/incidencias.ts (Facu 26/11: «si algo se
+// arregló, no me lo pongas como incidencia»). Si cambias una, cambia la otra.
+const NO_CUENTAN = new Set(['delan', 'trase', 'cambi', 'nuevo', 'nueva', 'revis', 'izqui', 'derec', 'compr', 'hacer', 'falta', 'queda', 'antes', 'despu']);
+const clavesDe = (t) => new Set(String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().split(/[^a-z]+/)
+  .filter((w) => w.length >= 5).map((w) => w.slice(0, 5)).filter((w) => !NO_CUENTAN.has(w)));
+const aDia = (f) => { const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(f || ''); return m ? `${m[3]}-${m[2]}-${m[1]}` : ''; };
+function arregladaPor(texto, fecha, reps) {
+  const c = clavesDe(texto); if (!c.size) return undefined;
+  return reps.filter((r) => aDia(r.fecha) > aDia(fecha)).sort((a, b) => aDia(a.fecha).localeCompare(aDia(b.fecha)))
+    .find((r) => [...clavesDe(r.que)].some((k) => c.has(k)));
+}
 const euros = (n) => (n == null ? '' : n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' }));
 
 (async () => {
-  const vehs = (await db.collection('vehicles').select('matricula', 'baja', 'historial', 'ultimaReparacion').get()).docs;
-  const yaHay = new Map();   // id vehículo → Set de ref ya importadas
+  // 'incidencias' hace falta: sin ella se leería [] y al guardar se BORRARÍAN las que ya tiene el vehículo.
+  const vehs = (await db.collection('vehicles').select('matricula', 'baja', 'historial', 'ultimaReparacion', 'incidencias').get()).docs;
+  const yaHay = new Map();     // id vehículo → Set de ref ya importadas
+  const previas = new Map();   // id vehículo → reparaciones que ya tiene (para ver si un aviso ya se arregló)
   let nuevas = 0, repetidas = 0, problemas = 0;
   for (const r of lista) {
     const mat = norm(r.matricula);
@@ -51,15 +65,21 @@ const euros = (n) => (n == null ? '' : n.toLocaleString('es-ES', { style: 'curre
     const limpio = (x) => String(x || '').toUpperCase().replace(/[^A-Z0-9/]/g, '');
     const ref = r.ref || [mat, r.fecha, r.factura || r.que].map(limpio).join('|');
     if (!yaHay.has(v.id)) {
-      const s = await v.ref.collection('reparaciones').select('ref').get();
+      const s = await v.ref.collection('reparaciones').select('ref', 'fecha', 'que').get();
       yaHay.set(v.id, new Set(s.docs.map((d) => d.get('ref')).filter(Boolean)));
+      previas.set(v.id, s.docs.map((d) => ({ fecha: d.get('fecha'), que: d.get('que') })));
     }
     if (yaHay.get(v.id).has(ref)) { console.log(`=  ${mat} ${r.fecha} ${r.taller} ${r.factura}: ya estaba`); repetidas++; continue; }
     if (r.archivo && !fs.existsSync(r.archivo)) { console.log(`!! ${mat}: NO EXISTE el archivo ${r.archivo}`); problemas++; continue; }
     const linea = `${mat} ${r.fecha} · ${r.taller || '—'} · ${r.que} · ${euros(r.importe)}${r.km ? ` · ${r.km} km` : ''}${r.archivo ? ' · con factura' : ''}`;
     nuevas++;
     yaHay.get(v.id).add(ref);
-    if (!HACER) { console.log(`+  ${linea}`); continue; }
+    // Aviso del taller («queda pendiente…»): si una reparación POSTERIOR (ya guardada o de esta misma lista) lo
+    // arregla, NO es incidencia (Facu 26/11). Se calcula antes del simulacro para que se vea también en él.
+    const posteriores = [...(previas.get(v.id) || []), ...lista.filter((x) => norm(x.matricula) === mat && x !== r)];
+    const arreglo = r.notas ? arregladaPor(r.notas, r.fecha, posteriores) : undefined;
+    const avisoTxt = !r.notas ? '' : arreglo ? `   (aviso «${r.notas}»: ya lo arregló la reparación del ${arreglo.fecha} → sin incidencia)` : `   (aviso «${r.notas}» → incidencia pendiente)`;
+    if (!HACER) { console.log(`+  ${linea}${avisoTxt ? '\n' + avisoTxt : ''}`); continue; }
 
     let documentoId = null;
     if (r.archivo) {
@@ -91,7 +111,7 @@ const euros = (n) => (n == null ? '' : n.toLocaleString('es-ES', { style: 'curre
     // Lo que el taller avisa que queda pendiente → incidencia del vehículo (sale cada mañana en Telegram).
     // Misma forma que src/incidencias.ts (nuevaIncidencia / conIncidencia).
     let incidencias;
-    if (r.notas) {
+    if (r.notas && !arreglo) {
       const hay = Array.isArray(v.get('incidencias')) ? v.get('incidencias') : [];
       const texto = String(r.notas).trim().slice(0, 300);
       if (!hay.some((x) => x.repId === repRef.id || String(x.texto).toLowerCase() === texto.toLowerCase())) {
@@ -102,7 +122,7 @@ const euros = (n) => (n == null ? '' : n.toLocaleString('es-ES', { style: 'curre
     await v.ref.update({ historial, ...(masNueva ? { ultimaReparacion: r.fecha } : {}), ...(incidencias ? { incidencias } : {}) });
     // Se vuelve a leer la ficha (1 lectura) para que la siguiente reparación del mismo vehículo parta del historial nuevo.
     vehs[vehs.indexOf(v)] = await v.ref.get();
-    console.log(`OK ${linea}`);
+    console.log(`OK ${linea}${avisoTxt ? '\n' + avisoTxt : ''}`);
   }
   console.log(`\n${HACER ? 'Importadas' : 'Se importarían'}: ${nuevas} · ya estaban: ${repetidas} · problemas: ${problemas}`);
 })().catch((e) => { console.error('ERROR', e.message); process.exit(1); });

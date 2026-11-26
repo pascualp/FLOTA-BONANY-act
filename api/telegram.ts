@@ -9,8 +9,8 @@ import { AVISO_CUOTA, esCuotaAgotada, guardar, leer, rutaNueva } from './_lib/ar
 import { conCambio, getVehicleAlerts, nuevoCambio, parseEsDate, textoCita, VENCIMIENTOS } from '../src/utils.js';
 import { CATEGORIAS, categoriaDe, esCategoria, estadoDocumentacion, MAX_BYTES, TIPOS_ARCHIVO, type DocResumen } from '../src/documentos.js';
 import { diasOcupados, planificar, tareasPendientes, textoPlan } from '../src/planificador.js';
-import { diaDe, euros, gastoPorAnio, leerImporte, ordenar, refReparacion, textoReparacion } from '../src/reparaciones.js';
-import { conIncidencia, incidenciasDe, nuevaIncidencia, sinIncidencia, textoIncidencia } from '../src/incidencias.js';
+import { diaDe, euros, gastoPorAnio, leerImporte, ordenar, refReparacion, textoReparacion, ultimaDe } from '../src/reparaciones.js';
+import { arregladaPor, conIncidencia, incidenciasDe, nuevaIncidencia, queArregla, sinIncidencia, textoIncidencia } from '../src/incidencias.js';
 import type { ClaveTramite, ClaveVencimiento, Reparacion, Vehicle } from '../src/types.js';
 
 // Agente «Flotas Bonany» en Telegram (/api/telegram, webhook del bot).
@@ -51,8 +51,8 @@ Qué puedes hacer con tus herramientas:
 - Apuntar una cita YA SACADA (ITV, ATP o tacógrafo): proponer_cita. «Hemos sacado / pedido / tenemos cita de la ITV» significa cita sacada y pendiente de llevar el vehículo.
 - Cuando el trámite ya se ha hecho («ya pasó la ITV», «la hemos pasado»): proponer_nueva_fecha con la fecha del PRÓXIMO vencimiento. Esto también quita la cita. Si no te dan la fecha nueva, pregúntala; no la inventes. Si mandan la tarjeta o el informe de la ITV, léela de ahí.
 - Seguro: cada vehículo tiene la fecha en que VENCE su póliza (vencimiento «seguro»). Si renuevan el seguro o mandan la póliza, propón la fecha nueva con proponer_nueva_fecha (vencimiento «seguro»), leída del papel.
-- Reparaciones: cada vehículo tiene su historial de reparaciones y mantenimiento (fecha, taller, qué se hizo, importe, km, nº de factura). Si mandan la foto o el PDF de una FACTURA DE TALLER (o cuentan una reparación), lee de ahí la matrícula, la fecha, el taller, qué se hizo, el importe TOTAL con IVA, los km y el nº de factura, y propón guardarla con proponer_reparacion (la factura se guarda también, enlazada). Si falta la matrícula o qué se hizo, pregunta. Para «¿qué se le ha hecho al…?», «¿cuánto llevamos gastado en…?» o «¿cuándo se cambió…?», usa ver_reparaciones.
-- Incidencias: cosas PENDIENTES de un vehículo (lo que avisa el taller en una factura, una avería, un ruido, un golpe). Si la factura avisa de algo pendiente, ponlo en «pendiente» de proponer_reparacion. Si cuentan una avería o algo por arreglar, proponer_incidencia. Si dicen que ya se arregló, proponer_resolver_incidencia; y si apuntas una reparación que arregla una incidencia pendiente de ese vehículo (míralo con ver_incidencias), propón también resolverla. «¿Qué incidencias hay?» → ver_incidencias.
+- Reparaciones: cada vehículo tiene su historial de reparaciones y mantenimiento (fecha, taller, qué se hizo, importe, km, nº de factura). Si mandan la foto o el PDF de una FACTURA DE TALLER (o cuentan una reparación), lee de ahí la matrícula, la fecha, el taller, qué se hizo, el importe TOTAL con IVA, los km y el nº de factura, y propón guardarla con proponer_reparacion (la factura se guarda también, enlazada). Si falta la matrícula o qué se hizo, pregunta. Para «¿qué se le ha hecho al…?», «¿cuánto llevamos gastado en…?» o «¿cuándo se cambió…?», usa ver_reparaciones. Contesta CORTO: cuándo y qué, una línea por reparación («El 31/10/2026 le cambiaron las pastillas y los discos (TMA Trailer).»); el importe, los km o el nº de factura solo si los preguntan.
+- Incidencias: cosas PENDIENTES de un vehículo (lo que avisa el taller en una factura, una avería, un ruido, un golpe). Si la factura avisa de algo pendiente, ponlo en «pendiente» de proponer_reparacion. Si cuentan una avería o algo por arreglar, proponer_incidencia. Si dicen que ya se arregló, proponer_resolver_incidencia. proponer_reparacion ya mira solo si el aviso lo arregló una reparación POSTERIOR (entonces no se apunta) y si la reparación arregla alguna incidencia pendiente (se resuelve con el mismo ✅): no propongas aparte ni esa incidencia ni su resolución. «¿Qué incidencias hay?» → ver_incidencias.
 - Anular una cita: proponer_quitar_cita. Cambiar un dato (chófer, aseguradora, póliza…): proponer_cambio. Dar de alta un vehículo: proponer_alta_vehiculo.
 - Guardar la foto o el PDF que viene en el mensaje en los documentos de un vehículo: proponer_guardar_archivo, diciendo SIEMPRE de qué tipo es (categoria): Permiso de circulación, Ficha técnica (también la «tarjeta ITV»), Póliza, ITV (informe de inspección), ATP, Tacógrafo, Carga y descarga, Tarjeta de transporte u Otro.
 
@@ -324,9 +324,17 @@ async function ejecutar(ctx: Ctx, nombre: string, e: any): Promise<string> {
       const km = Number(e.km) > 0 ? Math.round(Number(e.km)) : null;
       const pendiente = textoLimpio(e.pendiente);
       const rep = { fecha: e.fecha, que, taller: textoLimpio(e.taller), importe, km, factura: textoLimpio(e.factura), ...(pendiente ? { notas: pendiente } : {}) };
-      return proponer(ctx, 'reparacion', { vehicleId: v.id, matricula: v.matricula, rep, adjunto: ctx.adjunto || null },
+      // Facu 26/11: «si algo se arregló, no me lo pongas como incidencia». Con las reparaciones que ya tiene el vehículo:
+      // ¿el aviso de esta factura ya lo arregló otra POSTERIOR? ¿Y esta arregla alguna incidencia pendiente?
+      const previas = (await db().collection('vehicles').doc(v.id!).collection('reparaciones').select('fecha', 'que').get())
+        .docs.map((d) => ({ fecha: String(d.get('fecha') || ''), que: String(d.get('que') || '') }));
+      const arreglo = pendiente ? arregladaPor(pendiente, e.fecha, previas) : undefined;
+      const resuelve = queArregla({ fecha: e.fecha, que }, incidenciasDe(v));
+      return proponer(ctx, 'reparacion', { vehicleId: v.id, matricula: v.matricula, rep, adjunto: ctx.adjunto || null, resolver: resuelve.map((i) => i.id) },
         `${v.matricula}: reparación del ${e.fecha}${rep.taller ? ' en ' + rep.taller : ''} — ${que}${importe != null ? ' — ' + euros(importe) : ''}${km ? ` — ${km} km` : ''}${ctx.adjunto ? ' (con la factura adjunta)' : ''}` +
-        (pendiente ? `\n🛠 Queda como incidencia: «${pendiente}»` : ''));
+        (pendiente && arreglo ? `\n✓ El aviso «${pendiente}» ya lo arregló la reparación del ${arreglo.fecha} (${arreglo.que}): NO se apunta como incidencia` : '') +
+        (pendiente && !arreglo ? `\n🛠 Queda como incidencia: «${pendiente}»` : '') +
+        resuelve.map((i) => `\n✓ Da por resuelta la incidencia «${i.texto}» (${i.fecha})`).join(''));
     }
     case 'proponer_guardar_archivo': {
       if (!ctx.adjunto) throw new Error('Este mensaje no trae ninguna foto ni archivo. Pide que lo manden.');
@@ -407,19 +415,27 @@ async function aplicar(p: any, quien: string) {
           ...(a.unico ? { telegramUnico: a.unico } : {}),
         })).id;
       }
+      // Se vuelve a mirar al confirmar (entre la propuesta y el ✅ pudo apuntarse otra): ¿una POSTERIOR ya arregla el aviso?
+      const previas = (await veh!.collection('reparaciones').select('fecha', 'que').get())
+        .docs.map((x) => ({ fecha: String(x.get('fecha') || ''), que: String(x.get('que') || '') }));
+      const arreglo = d.rep.notas ? arregladaPor(d.rep.notas, d.rep.fecha, previas) : undefined;
       const repRef = await veh!.collection('reparaciones').add({
         ...d.rep, dia: diaDe(d.rep.fecha), ...(documentoId ? { documentoId } : {}), ...(d.rep.factura ? { ref } : {}),
         origen: 'telegram', creadoPor: `Telegram · ${quien}`, creado: FieldValue.serverTimestamp(),
       });
-      // Lo que el taller avisa que queda pendiente → incidencia del vehículo (sale en el reporte de Telegram).
-      const extra: Record<string, unknown> = {};
-      if (d.rep.notas) {
-        extra.incidencias = conIncidencia(actual!.data() as Vehicle,
-          nuevaIncidencia(d.rep.notas, d.rep.fecha, `${d.rep.taller || 'taller'}${d.rep.factura ? ', factura ' + d.rep.factura : ''}`, repRef.id));
-      }
+      // Incidencias: fuera las que la propuesta dijo que resuelve (solo si siguen pendientes); y el aviso del taller,
+      // si nadie lo ha arreglado después, entra como incidencia nueva (sale en el reporte de Telegram).
+      const resolver: string[] = Array.isArray(d.resolver) ? d.resolver : [];
+      const antes = incidenciasDe(actual!.data() as Vehicle);
+      const resueltas = antes.filter((i) => resolver.includes(i.id));
+      let incidencias = antes.filter((i) => !resolver.includes(i.id));
+      const nueva = d.rep.notas && !arreglo;
+      if (nueva) incidencias = conIncidencia({ incidencias }, nuevaIncidencia(d.rep.notas, d.rep.fecha, `${d.rep.taller || 'taller'}${d.rep.factura ? ', factura ' + d.rep.factura : ''}`, repRef.id));
       await veh!.update({
-        ultimaReparacion: d.rep.fecha, ...extra,
-        historial: historial(`Reparación: ${d.rep.fecha} · ${d.rep.que}${d.rep.importe != null ? ' · ' + euros(d.rep.importe) : ''}${d.rep.notas ? ' · incidencia: ' + d.rep.notas : ''}`),
+        ultimaReparacion: ultimaDe([...previas, { fecha: d.rep.fecha }]),
+        ...(nueva || resueltas.length ? { incidencias } : {}),
+        historial: historial(`Reparación: ${d.rep.fecha} · ${d.rep.que}${d.rep.importe != null ? ' · ' + euros(d.rep.importe) : ''}` +
+          `${nueva ? ' · incidencia: ' + d.rep.notas : ''}${resueltas.length ? ' · resuelve: ' + resueltas.map((i) => i.texto).join('; ') : ''}`),
       });
       return;
     }

@@ -40,5 +40,14 @@ export function gastoPorAnio(rs: Reparacion[]) {
   return r;
 }
 
-export const textoReparacion = (x: Reparacion) =>
-  `${x.fecha}${x.taller ? ' · ' + x.taller : ''} · ${x.que}${x.importe != null ? ' · ' + euros(x.importe) : ''}${x.km ? ` · ${x.km.toLocaleString('es-ES')} km` : ''}${x.factura ? ' · factura ' + x.factura : ''}`;
+// La fecha de la reparación más reciente (dd/mm/aaaa), '' si no hay ninguna. Para «ultimaReparacion»: apuntar una
+// factura vieja (p. ej. de septiembre) no puede hacer que la última pase a ser esa.
+export const ultimaDe = (rs: { fecha?: string }[]) =>
+  rs.reduce((u, x) => (x.fecha && diaDe(x.fecha) > diaDe(u) ? x.fecha : u), '');
+
+// Primero CUÁNDO y QUÉ (Facu 26/11: «no me des tanta información, sino cuándo fue la reparación de algo»); lo demás,
+// entre paréntesis, por si lo preguntan.
+export const textoReparacion = (x: Reparacion) => {
+  const resto = [x.taller, x.importe != null ? euros(x.importe) : '', x.km ? `${x.km.toLocaleString('es-ES')} km` : '', x.factura ? 'factura ' + x.factura : ''].filter(Boolean);
+  return `${x.fecha}: ${x.que}${resto.length ? ` (${resto.join(' · ')})` : ''}`;
+};

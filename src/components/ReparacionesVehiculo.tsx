@@ -4,11 +4,11 @@ import { Wrench, Plus, Paperclip, Trash2, Loader2, Pencil } from 'lucide-react';
 import { db } from '../lib/firebase';
 import type { Reparacion, Vehicle } from '../types';
 import { aFechaInput, deFechaInput } from '../utils';
-import { diaDe, euros, gastoPorAnio, leerImporte, ordenar } from '../reparaciones';
+import { diaDe, euros, gastoPorAnio, leerImporte, ordenar, ultimaDe } from '../reparaciones';
 import { abrirDocumento, subirDocumento, tipoDe } from '../lib/documentosApi';
 import { guardarCambios, quienWeb } from '../lib/guardarVehiculo';
 import { AVISO_CUOTA, esCuotaAgotada, MAX_BYTES, TIPOS_ARCHIVO } from '../documentos';
-import { conIncidencia, incidenciasDe, nuevaIncidencia } from '../incidencias';
+import { arregladaPor, conIncidencia, incidenciasDe, nuevaIncidencia, queArregla, sinIncidencia } from '../incidencias';
 
 // Historial de reparaciones y mantenimiento de un vehículo (vehicles/<id>/reparaciones). Se lee solo mientras la ficha
 // está abierta. Cada reparación puede llevar su factura (foto o PDF, que va al almacén de archivos como «Factura de
@@ -35,7 +35,6 @@ export const ReparacionesVehiculo = ({ vehiculo, demo }: { vehiculo: Vehicle; de
 
   const anio = String(new Date().getFullYear());
   const gasto = gastoPorAnio(lista);
-  const total = lista.reduce((s, x) => s + (x.importe || 0), 0);
 
   const abrirForm = (r?: Reparacion) => {
     setEditando(r?.id || null);
@@ -57,6 +56,14 @@ export const ReparacionesVehiculo = ({ vehiculo, demo }: { vehiculo: Vehicle; de
     if (archivo && (archivo.size > MAX_BYTES || !TIPOS_ARCHIVO.includes(tipoDe(archivo)))) {
       alert('La factura tiene que ser un PDF o una foto de menos de 25 MB'); return;
     }
+    // Facu 26/11: «si algo se arregló, no me lo pongas como incidencia». Se pregunta ANTES de guardar nada.
+    const pendiente = editando ? '' : form.pendiente.trim();
+    const arreglo = pendiente ? arregladaPor(pendiente, fecha, lista) : undefined;
+    const yaArreglado = !!arreglo && window.confirm(
+      `El aviso «${pendiente}» parece que ya lo arregló la reparación del ${arreglo.fecha} (${arreglo.que}).\n\n` +
+      'Aceptar = ya está arreglado (no se apunta como incidencia)\nCancelar = apuntarlo igual como incidencia');
+    const resueltas = editando ? [] : queArregla({ fecha, que: form.que.trim() }, incidenciasDe(vehiculo)).filter((i) => window.confirm(
+      `¿Esta reparación arregla la incidencia «${i.texto}» (del ${i.fecha})?\n\nAceptar = darla por resuelta`));
     setGuardando(true);
     try {
       // Primero la factura (si hay): así la reparación nace ya enlazada a ella.
@@ -69,17 +76,18 @@ export const ReparacionesVehiculo = ({ vehiculo, demo }: { vehiculo: Vehicle; de
       const resumen = `${fecha} · ${form.que.trim()}${importe != null ? ' · ' + euros(importe) : ''}`;
       if (editando) {
         await updateDoc(doc(db, 'vehicles', vehiculo.id, 'reparaciones', editando), datos);
-        await guardarCambios(vehiculo, { ultimaReparacion: fecha }, `Reparación cambiada: ${resumen}`);
+        await guardarCambios(vehiculo, { ultimaReparacion: ultimaDe(lista.map((x) => (x.id === editando ? { ...x, fecha } : x))) }, `Reparación cambiada: ${resumen}`);
       } else {
-        const pendiente = form.pendiente.trim();
         const nueva = await addDoc(collection(db, 'vehicles', vehiculo.id, 'reparaciones'), {
           ...datos, ...(pendiente ? { notas: pendiente } : {}), origen: 'web', creadoPor: quienWeb(), creado: serverTimestamp(),
         });
-        // Lo que el taller avisa que queda por hacer → incidencia pendiente (sale en Telegram cada mañana).
-        const extra = pendiente
-          ? { incidencias: conIncidencia(vehiculo, nuevaIncidencia(pendiente, fecha, `${form.taller.trim() || 'taller'}${form.factura.trim() ? ', factura ' + form.factura.trim() : ''}`, nueva.id)) }
-          : {};
-        await guardarCambios(vehiculo, { ultimaReparacion: fecha, ...extra }, `Reparación: ${resumen}${pendiente ? ' · incidencia: ' + pendiente : ''}`);
+        // Fuera las incidencias que arregla; y lo que el taller avisa que queda por hacer (si no está ya arreglado)
+        // → incidencia pendiente (sale en Telegram cada mañana).
+        const nuevaInc = !!pendiente && !yaArreglado;
+        let incidencias = incidenciasDe(vehiculo).filter((i) => !resueltas.includes(i));
+        if (nuevaInc) incidencias = conIncidencia({ incidencias }, nuevaIncidencia(pendiente, fecha, `${form.taller.trim() || 'taller'}${form.factura.trim() ? ', factura ' + form.factura.trim() : ''}`, nueva.id));
+        await guardarCambios(vehiculo, { ultimaReparacion: ultimaDe([...lista, { fecha }]), ...(nuevaInc || resueltas.length ? { incidencias } : {}) },
+          `Reparación: ${resumen}${nuevaInc ? ' · incidencia: ' + pendiente : ''}${resueltas.length ? ' · resuelve: ' + resueltas.map((i) => i.texto).join('; ') : ''}`);
       }
       setForm(null);
     } catch (err) {
@@ -90,10 +98,14 @@ export const ReparacionesVehiculo = ({ vehiculo, demo }: { vehiculo: Vehicle; de
   };
 
   const borrar = async (r: Reparacion) => {
-    if (!vehiculo.id || !r.id || !window.confirm(`¿Borrar la reparación del ${r.fecha} (${r.que})? La factura se queda en Documentación.`)) return;
+    // Si su aviso del taller sigue como incidencia pendiente, se quita con ella (antes se quedaba colgada).
+    const suya = incidenciasDe(vehiculo).find((i) => i.repId === r.id);
+    if (!vehiculo.id || !r.id || !window.confirm(`¿Borrar la reparación del ${r.fecha} (${r.que})? La factura se queda en Documentación.` +
+      (suya ? `\n\nTambién se quita su incidencia pendiente «${suya.texto}».` : ''))) return;
     try {
       await deleteDoc(doc(db, 'vehicles', vehiculo.id, 'reparaciones', r.id));
-      await guardarCambios(vehiculo, { ultimaReparacion: lista.find((x) => x.id !== r.id)?.fecha || '' }, `Reparación borrada: ${r.fecha} · ${r.que}`);
+      await guardarCambios(vehiculo, { ultimaReparacion: ultimaDe(lista.filter((x) => x.id !== r.id)), ...(suya ? { incidencias: sinIncidencia(vehiculo, suya.id) } : {}) },
+        `Reparación borrada: ${r.fecha} · ${r.que}${suya ? ' · y su incidencia: ' + suya.texto : ''}`);
     } catch (err) { avisar('No se pudo borrar', err); }
   };
 
@@ -112,7 +124,7 @@ export const ReparacionesVehiculo = ({ vehiculo, demo }: { vehiculo: Vehicle; de
           <h4 className="font-bold text-slate-800 flex items-center gap-2"><Wrench className="w-4 h-4" />Reparaciones y mantenimiento</h4>
           <p className="text-xs text-slate-400">
             {lista.length === 0 ? 'Todavía no hay ninguna apuntada. Por Telegram: manda la foto de la factura al bot.'
-              : `${anio}: ${euros(gasto[anio]?.total || 0)} en ${gasto[anio]?.n || 0} · Total apuntado: ${euros(total)} en ${lista.length}`}
+              : `Última: ${lista[0].fecha} · ${lista.length} apuntadas · gastado en ${anio}: ${euros(gasto[anio]?.total || 0)}`}
           </p>
         </div>
         {!form && (
@@ -162,19 +174,18 @@ export const ReparacionesVehiculo = ({ vehiculo, demo }: { vehiculo: Vehicle; de
       {lista.length > 0 && (
         <ul className="space-y-2">
           {visibles.map((r) => (
-            <li key={r.id} className="p-3 rounded-xl border border-slate-100 flex justify-between gap-3 flex-wrap">
+            // Facu 26/11: «no me des tanta información, sino cuándo fue la reparación de algo». CUÁNDO y QUÉ delante;
+            // taller e importe pequeños; km, nº de factura y origen solo al abrirla con el lápiz.
+            <li key={r.id} className="p-3 rounded-xl border border-slate-100 flex justify-between items-start gap-3">
               <div className="min-w-0 text-sm">
+                <p className="text-xs font-bold text-blue-700">{r.fecha}</p>
                 <p className="font-bold text-slate-700">{r.que}</p>
-                {r.notas && (incidenciasDe(vehiculo).some((i) => i.repId === r.id)
-                  ? <p className="text-xs text-amber-700">⚠ Pendiente: {r.notas}</p>
-                  : <p className="text-xs text-slate-400">✓ Aviso del taller (resuelto): {r.notas}</p>)}
-                <p className="text-xs text-slate-500">
-                  {r.fecha}{r.taller ? ` · ${r.taller}` : ''}{r.km ? ` · ${r.km.toLocaleString('es-ES')} km` : ''}{r.factura ? ` · factura ${r.factura}` : ''}
-                  {r.origen && r.origen !== 'web' ? ` · ${{ winclass: 'de Winclass', telegram: 'por Telegram', escaneo: 'factura escaneada' }[r.origen]}` : ''}
-                </p>
+                {r.notas && incidenciasDe(vehiculo).some((i) => i.repId === r.id) && <p className="text-xs text-amber-700">⚠ Pendiente: {r.notas}</p>}
+                {(r.taller || r.importe != null) && (
+                  <p className="text-xs text-slate-400">{[r.taller, r.importe != null ? euros(r.importe) : ''].filter(Boolean).join(' · ')}</p>
+                )}
               </div>
-              <div className="flex items-center gap-2 shrink-0">
-                {r.importe != null && <span className="text-sm font-bold text-slate-800">{euros(r.importe)}</span>}
+              <div className="flex items-center gap-1 shrink-0">
                 {r.documentoId && (
                   <button onClick={() => verFactura(r.documentoId!)} title="Ver la factura" className="p-2 rounded-lg text-blue-600 hover:bg-blue-50"><Paperclip className="w-4 h-4" /></button>
                 )}
