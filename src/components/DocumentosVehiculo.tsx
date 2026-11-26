@@ -158,7 +158,8 @@ export const DocumentosVehiculo = ({ vehiculo, documentos }: { vehiculo: Vehicle
               <div className="min-w-0">
                 <p className="text-sm font-bold text-slate-700 break-words">{d.name}</p>
                 <p className="text-[10px] text-slate-400 font-medium flex items-center gap-2 flex-wrap">
-                  <span>{d.uploadedAt ? new Date(d.uploadedAt.toDate()).toLocaleDateString('es-ES') : 'Subiendo…'}</span>
+                  {/* toDate?.(): si la fecha no viene como fecha de la base (copia de prueba, caché vieja) no se rompe la ficha. */}
+                  <span>{d.uploadedAt ? new Date((d.uploadedAt as any).toDate?.() ?? (d.uploadedAt as any)).toLocaleDateString('es-ES') : 'Subiendo…'}</span>
                   {d.size ? <span>• {formatoTamano(d.size)}</span> : null}
                   {d.subidoPor ? <span>• {d.subidoPor}</span> : null}
                 </p>

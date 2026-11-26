@@ -5,7 +5,8 @@ import { collection, onSnapshot, query } from 'firebase/firestore';
 import { onAuthStateChanged, signOut, User } from 'firebase/auth';
 import { LoginScreen } from './components/LoginScreen';
 import { Vehicle, VehicleDocument } from './types';
-import { getAllAlerts, problemasDe } from './utils';
+import { problemasDe } from './utils';
+import { incidenciasDe } from './incidencias';
 import { AVISO_CUOTA, esCuotaAgotada } from './documentos';
 import { AVISO_SIN_ACCESO, tieneAcceso } from './acceso';
 
@@ -19,6 +20,10 @@ import { AddVehicleModal } from './components/AddVehicleModal';
 // los datos en public/demo-flota.json (que NO va a GitHub) sin entrar con Google ni leer la base. Sirve para ver cómo
 // queda la pantalla cuando la base no se puede usar. En la web publicada no existe (import.meta.env.DEV es false).
 const DEMO = import.meta.env.DEV && new URLSearchParams(window.location.search).has('demo');
+
+// El archivo de la app que está corriendo («index-XXXX.js»). En el PC de programar no hay: ahí no se mira.
+const versionActual = () =>
+  document.querySelector<HTMLScriptElement>('script[type="module"][src*="/assets/index-"]')?.src.split('/assets/')[1] || '';
 
 export default function App() {
   // Todas las fichas, también las que están fuera de la flota (campo «baja»).
@@ -41,6 +46,26 @@ export default function App() {
   // undefined = todavía comprobando la sesión; null = sin sesión
   const [user, setUser] = useState<User | null | undefined>(undefined);
   const [dataError, setDataError] = useState('');
+  const [versionNueva, setVersionNueva] = useState(false);
+
+  // ¿Se ha publicado una versión nueva? Esta web no se recarga sola: una pestaña abierta desde el día antes seguía
+  // enseñando la versión vieja (26/11/2026: Facu veía la interfaz de antes de los cambios). Cada 5 minutos y al volver
+  // a la pestaña se mira qué archivo de la app sirve Vercel; si no es el que corre, sale arriba «Actualizar».
+  useEffect(() => {
+    const actual = versionActual();
+    if (!actual) return;
+    const mirar = async () => {
+      try {
+        const html = await (await fetch('/', { cache: 'no-store' })).text();
+        const publicada = /\/assets\/(index-[^"']+\.js)/.exec(html)?.[1];
+        if (publicada && publicada !== actual) setVersionNueva(true);
+      } catch { /* sin conexión: se mirará la próxima vez */ }
+    };
+    const alVolver = () => { if (document.visibilityState === 'visible') mirar(); };
+    const cada5min = setInterval(mirar, 5 * 60 * 1000);
+    document.addEventListener('visibilitychange', alVolver);
+    return () => { clearInterval(cada5min); document.removeEventListener('visibilitychange', alVolver); };
+  }, []);
 
   useEffect(() => {
     const on = () => setEnLinea(true);
@@ -157,10 +182,10 @@ export default function App() {
   // Solo la flota que SÍ tenemos cuenta para las alertas; la de fuera sale aparte en «Vehículos».
   const vehicles = todos.filter(v => !v.baja);
   const fuera = todos.filter(v => v.baja);
-  const alerts = getAllAlerts(vehicles);
-  // Contador del menú: trámites vencidos, que vencen pronto o con fecha que falta o no se entiende, sin cita sacada.
-  // Lo que está en regla no cuenta (antes salía el total de fechas de toda la flota).
-  const porMirar = vehicles.reduce((n, v) => { const p = problemasDe(v); return n + p.vencidos + p.pronto + p.revisar; }, 0);
+  // Contador del menú: trámites vencidos, que vencen pronto o con fecha que falta o no se entiende (sin cita sacada) y
+  // avisos del taller pendientes. Lo que está en regla no cuenta (antes salía el total de fechas de toda la flota).
+  const porMirar = vehicles.reduce((n, v) => { const p = problemasDe(v); return n + p.vencidos + p.pronto + p.revisar + incidenciasDe(v).length; }, 0);
+  const conAlgo = vehicles.filter((v) => { const p = problemasDe(v); return p.vencidos + p.pronto + p.revisar + incidenciasDe(v).length > 0; }).length;
 
   const currentVehicle = selectedVehicle ? todos.find(v => v.id === selectedVehicle.id) || selectedVehicle : null;
   const vehicleDocuments = currentVehicle?.id ? docsPorVehiculo[currentVehicle.id] || [] : [];
@@ -206,20 +231,19 @@ export default function App() {
         </div>
         <nav className="flex-1">
           <ul className="space-y-2 text-sm font-medium">
-            {pestana('alerts', <AlertCircle className="w-5 h-5" />, 'Alertas de Vencimiento', porMirar > 0 ? (
-              <span className="ml-auto bg-red-100 text-red-600 px-2 py-0.5 rounded-full text-[10px] font-bold" title="Trámites por mirar (sin cita sacada)">{porMirar}</span>
+            {pestana('alerts', <AlertCircle className="w-5 h-5" />, 'Qué hay que hacer', porMirar > 0 ? (
+              <span className="ml-auto bg-red-100 text-red-600 px-2 py-0.5 rounded-full text-[10px] font-bold" title="Cosas pendientes (lo que ya tiene cita no cuenta)">{porMirar}</span>
             ) : undefined)}
             {pestana('vehicles', <Truck className="w-5 h-5" />, 'Vehículos', (
               <span className="ml-auto bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full text-[10px] font-bold">{vehicles.length}</span>
             ))}
-            <li
-              onClick={sendEmailReport}
-              className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all duration-200 text-slate-500 hover:bg-blue-50 hover:text-blue-600 group ${isSendingEmail ? 'opacity-50 pointer-events-none' : ''}`}
-            >
-              <Mail className="w-5 h-5 group-hover:scale-110 transition-transform" />
-              {isSendingEmail ? 'Enviando...' : 'Enviar Reporte Email'}
-            </li>
           </ul>
+          {/* No es una pantalla: es una acción. Antes estaba en el menú como si lo fuera. */}
+          <button onClick={sendEmailReport} disabled={isSendingEmail}
+            className="mt-6 w-full text-left p-3 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50">
+            <span className="flex items-center gap-2 text-sm font-semibold"><Mail className="w-4 h-4" />{isSendingEmail ? 'Enviando…' : 'Mandar el resumen por correo'}</span>
+            <span className="block text-[11px] text-slate-400 mt-0.5">El mismo que llega solo cada mañana a las 8</span>
+          </button>
         </nav>
         <div className="mt-auto p-4 bg-slate-50 rounded-2xl border border-slate-100">
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Usuario</p>
@@ -238,6 +262,12 @@ export default function App() {
             ⚠️ {AVISO_CUOTA}
           </div>
         )}
+        {versionNueva && (
+          <div className="bg-blue-600 text-white rounded-2xl p-3 md:px-5 text-sm font-medium shrink-0 flex items-center justify-between gap-3">
+            <span>Hay una versión nueva de la app.</span>
+            <button onClick={() => window.location.reload()} className="bg-white text-blue-700 font-bold px-4 py-1.5 rounded-full shrink-0">Actualizar</button>
+          </div>
+        )}
         {DEMO && (
           <div className="bg-violet-50 border border-violet-200 text-violet-800 rounded-2xl p-3 text-sm font-medium shrink-0">
             Modo prueba: datos de una copia, sin conexión con la base. Lo que se guarde aquí no se guarda de verdad.
@@ -246,11 +276,11 @@ export default function App() {
 
         <div className="flex justify-between items-center gap-3 shrink-0">
           <div className="min-w-0">
-            <h2 className="text-xl md:text-2xl font-bold text-slate-800">
-              <span className="md:hidden">Flotas Bonany</span>
-              <span className="hidden md:inline">Estado de la Flota</span>
-            </h2>
-            <p className="text-slate-500 text-xs md:text-sm">{porMirar > 0 ? `${porMirar} cosas por mirar` : 'Todo en regla'} · {vehicles.length} vehículos</p>
+            <h2 className="text-xl md:text-2xl font-bold text-slate-800">{activeTab === 'vehicles' ? 'Vehículos' : 'Qué hay que hacer'}</h2>
+            <p className="text-slate-500 text-xs md:text-sm">
+              {activeTab === 'vehicles' ? `${vehicles.length} en la flota${fuera.length ? ` · ${fuera.length} fuera` : ''}`
+                : porMirar > 0 ? `${porMirar} ${porMirar === 1 ? 'cosa pendiente' : 'cosas pendientes'} en ${conAlgo} de ${vehicles.length} vehículos` : `Todo en regla en los ${vehicles.length} vehículos`}
+            </p>
           </div>
           <button
             onClick={() => setShowAddModal(true)}
@@ -262,7 +292,7 @@ export default function App() {
         </div>
 
         {activeTab === 'alerts' && (
-          <AlertsList alerts={alerts} setSelectedVehicle={setSelectedVehicle} setIsEditing={setIsEditing} />
+          <AlertsList vehicles={vehicles} setSelectedVehicle={setSelectedVehicle} setIsEditing={setIsEditing} />
         )}
 
         {activeTab === 'vehicles' && (
@@ -294,7 +324,7 @@ export default function App() {
       {/* Barra de abajo en el móvil (en vez del menú lateral, que en el móvil se comía la pantalla). */}
       <nav className="md:hidden fixed bottom-0 inset-x-0 bg-white border-t border-slate-200 flex justify-around py-2 z-40 shadow-[0_-4px_12px_rgba(0,0,0,0.04)]">
         {[
-          { id: 'alerts', icono: <AlertCircle className="w-5 h-5" />, texto: 'Alertas', badge: porMirar },
+          { id: 'alerts', icono: <AlertCircle className="w-5 h-5" />, texto: 'Por hacer', badge: porMirar },
           { id: 'vehicles', icono: <Truck className="w-5 h-5" />, texto: 'Vehículos', badge: 0 },
         ].map((b) => (
           <button key={b.id} onClick={() => setActiveTab(b.id)} className={`relative flex flex-col items-center gap-0.5 px-4 py-1 text-[11px] font-bold ${activeTab === b.id ? 'text-blue-600' : 'text-slate-400'}`}>
@@ -303,7 +333,7 @@ export default function App() {
           </button>
         ))}
         <button onClick={sendEmailReport} disabled={isSendingEmail} className="flex flex-col items-center gap-0.5 px-4 py-1 text-[11px] font-bold text-slate-400 disabled:opacity-50">
-          <Mail className="w-5 h-5" />{isSendingEmail ? 'Enviando' : 'Reporte'}
+          <Mail className="w-5 h-5" />{isSendingEmail ? 'Enviando' : 'Correo'}
         </button>
         <button onClick={() => window.confirm('¿Salir de la cuenta?') && signOut(auth)} className="flex flex-col items-center gap-0.5 px-4 py-1 text-[11px] font-bold text-slate-400">
           <LogOut className="w-5 h-5" />Salir

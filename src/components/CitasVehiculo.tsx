@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { deleteField } from 'firebase/firestore';
 import { CalendarPlus, CheckCircle2, Pencil, X } from 'lucide-react';
 import type { Cita, ClaveTramite, Vehicle } from '../types';
-import { aFechaInput, deFechaInput, getVehicleAlerts, TRAMITES } from '../utils';
+import { aFechaInput, deFechaInput, getVehicleAlerts, NOMBRE_CORTO, TRAMITES } from '../utils';
 import { guardarCambios, quienWeb } from '../lib/guardarVehiculo';
 import { AVISO_CUOTA, esCuotaAgotada } from '../documentos';
 
@@ -72,7 +72,7 @@ export const CitasVehiculo = ({ vehiculo }: { vehiculo: Vehicle }) => {
             <div key={t.clave} className={`rounded-xl border p-3 ${c ? 'border-blue-100 bg-blue-50/50' : 'border-slate-100'}`}>
               <div className="flex items-center justify-between gap-2 flex-wrap">
                 <div className="text-sm">
-                  <span className="font-bold text-slate-700">{t.label}</span>
+                  <span className="font-bold text-slate-700">{NOMBRE_CORTO[t.clave]}</span>
                   {c ? (
                     <span className="block text-blue-700 font-semibold">
                       📅 {c.fecha}{c.hora ? ` a las ${c.hora}` : ''}{c.lugar ? ` · ${c.lugar}` : ''}

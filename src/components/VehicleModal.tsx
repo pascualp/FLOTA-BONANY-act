@@ -3,7 +3,7 @@ import { X, Trash2, ArchiveX, Undo2, History, Pencil } from 'lucide-react';
 import { db } from '../lib/firebase';
 import { deleteDoc, deleteField, doc as firestoreDoc } from 'firebase/firestore';
 import { Vehicle, VehicleDocument } from '../types';
-import { getVehicleAlerts, VENCIMIENTOS } from '../utils';
+import { fechaEnPantalla, fraseVencimiento, getVehicleAlerts, NOMBRE_CORTO, VENCIMIENTOS } from '../utils';
 import { AVISO_CUOTA, esCuotaAgotada } from '../documentos';
 import { borrarDocumento } from '../lib/documentosApi';
 import { guardarCambios } from '../lib/guardarVehiculo';
@@ -21,10 +21,14 @@ interface VehicleModalProps {
   vehicleDocuments: VehicleDocument[];
 }
 
+// Fondo y punto de cada vencimiento según cómo está (rojo caducado, ámbar caduca pronto, gris falta la fecha, verde en
+// regla, azul con cita pedida).
 const COLOR: Record<string, string> = {
-  danger: 'bg-red-100 text-red-600', warning: 'bg-amber-100 text-amber-700', unknown: 'bg-slate-200 text-slate-600', success: 'bg-emerald-100 text-emerald-700',
+  danger: 'bg-red-50 border-red-200', warning: 'bg-amber-50 border-amber-200', unknown: 'bg-slate-50 border-slate-200',
+  success: 'bg-white border-slate-100', cita: 'bg-blue-50 border-blue-200',
 };
-const PRIORIDAD: Record<string, string> = { low: '15 días antes', medium: '30 días antes', high: '60 días antes' };
+const PUNTO: Record<string, string> = { danger: 'bg-red-500', warning: 'bg-amber-500', unknown: 'bg-slate-400', success: 'bg-emerald-500', cita: 'bg-blue-500' };
+const PRIORIDAD: Record<string, string> = { low: '15 días antes de que caduque', medium: '30 días antes de que caduque', high: '60 días antes de que caduque' };
 const avisarError = (que: string, error: any) => alert(esCuotaAgotada(error) ? AVISO_CUOTA : `${que}: ${error?.message || error}`);
 const hoyTexto = () => new Date().toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' });
 
@@ -114,23 +118,19 @@ export const VehicleModal = ({ selectedVehicle: v, setSelectedVehicle, isEditing
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-3">
               <h4 className="font-bold text-slate-800 border-b border-slate-100 pb-2">Vencimientos</h4>
+              {/* Cada vencimiento dicho con una frase (26/11/2026: antes «18/04/26» y al lado una etiqueta «📅 Cita…» o «—»). */}
               {VENCIMIENTOS.map((t) => {
                 const a = alertas.find((x) => x.clave === t.clave);
-                const valor = v[t.campo];
                 return (
-                  <div key={t.clave} className="flex justify-between items-center gap-2 bg-slate-50 p-3 rounded-xl border border-slate-100">
+                  <div key={t.clave} className={`flex items-start gap-3 p-3 rounded-xl border ${a ? (a.cita ? COLOR.cita : COLOR[a.status]) : 'bg-slate-50 border-slate-100'}`}>
+                    <span className={`mt-1.5 w-2.5 h-2.5 rounded-full shrink-0 ${a ? (a.cita ? PUNTO.cita : PUNTO[a.status]) : 'bg-slate-300'}`} />
                     <div className="min-w-0">
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t.label}</p>
-                      <p className="font-bold text-sm text-slate-700">{a ? a.date : valor || '—'}</p>
+                      <p className="font-bold text-sm text-slate-800">{NOMBRE_CORTO[t.clave]}</p>
+                      <p className="text-sm text-slate-600">{a ? fraseVencimiento(a) : 'A este vehículo no le toca'}</p>
                       {t.clave === 'seguro' && (v.aseguradora || v.poliza) && (
                         <p className="text-xs text-slate-500">{[v.aseguradora, v.poliza && `póliza ${v.poliza}`].filter(Boolean).join(' · ')}</p>
                       )}
                     </div>
-                    {a ? (
-                      <span className={`text-[10px] px-2 py-1 rounded font-black whitespace-nowrap ${a.cita ? 'bg-blue-100 text-blue-700' : COLOR[a.status]}`}>
-                        {a.cita ? `📅 Cita ${a.cita.fecha}` : a.text}
-                      </span>
-                    ) : <span className="text-[10px] text-slate-400">{valor ? 'No le toca' : '—'}</span>}
                   </div>
                 );
               })}
@@ -139,8 +139,8 @@ export const VehicleModal = ({ selectedVehicle: v, setSelectedVehicle, isEditing
               <h4 className="font-bold text-slate-800 border-b border-slate-100 pb-2">Datos</h4>
               <div className="grid grid-cols-2 gap-4">
                 {[
-                  ['Tipo', v.tipo], ['Tipo de caja', v.tipoCaja], ['Capacidad', v.capacidad], ['F. matriculación', v.fechaMatriculacion],
-                  ['Chófer', v.chofer], ['Avisar', PRIORIDAD[v.priority || 'medium']],
+                  ['Tipo', v.tipo], ['Tipo de caja', v.tipoCaja], ['Capacidad', v.capacidad], ['Matriculado el', v.fechaMatriculacion ? fechaEnPantalla(v.fechaMatriculacion) : ''],
+                  ['Chófer', v.chofer], ['Avisa', PRIORIDAD[v.priority || 'medium']],
                 ].map(([k, val]) => (
                   <div key={k}><p className="text-xs font-bold text-slate-400 uppercase tracking-wider">{k}</p><p className="font-medium text-sm">{val || '—'}</p></div>
                 ))}

@@ -2,7 +2,7 @@
 // vencimiento, qué cuenta como «por mirar», quién puede entrar, importes de reparaciones y el planificador.
 // Uso: npm test   (no toca la base ni Internet). Si algo falla, sale el caso y termina con error.
 import assert from 'node:assert/strict';
-import { getAlertStatus, getVehicleAlerts, noAplica, papelesCaducados, parseEsDate, problemasDe, aFechaInput, deFechaInput, normalizarMatricula, conCambio, nuevoCambio, HISTORIAL_MAX } from '../src/utils.ts';
+import { getAlertStatus, getVehicleAlerts, noAplica, papelesCaducados, parseEsDate, problemasDe, aFechaInput, deFechaInput, normalizarMatricula, conCambio, nuevoCambio, HISTORIAL_MAX, fechaEnPantalla, fraseVencimiento, type AlertaVehiculo } from '../src/utils.ts';
 import { tieneAcceso } from '../src/acceso.ts';
 import { leerImporte, gastoPorAnio, diaDe, refReparacion, ultimaDe } from '../src/reparaciones.ts';
 import { arregladaPor, queArregla } from '../src/incidencias.ts';
@@ -45,6 +45,20 @@ prueba('estado según la fecha', () => {
   assert.equal(getAlertStatus('26/12/2026', 'high', HOY).status, 'warning');     // prioridad alta: avisa 60 días antes
   assert.equal(getAlertStatus('FALTA', 'medium', HOY).text, 'Falta la fecha');
   assert.equal(getAlertStatus('00/00/00', 'medium', HOY).text, 'Fecha que no entiendo');
+});
+prueba('en pantalla: fechas siempre dd/mm/aaaa y dichas con una frase', () => {
+  assert.equal(fechaEnPantalla('02/29'), '28/02/2029');
+  assert.equal(fechaEnPantalla('23/10/24'), '23/10/2024');
+  assert.equal(fechaEnPantalla('FALTA'), 'FALTA');
+  const a = (date: string, extra: Partial<AlertaVehiculo> = {}): AlertaVehiculo =>
+    ({ label: 'ITV', clave: 'itv', date, ...getAlertStatus(date, 'medium', HOY), ...extra });
+  assert.equal(fraseVencimiento(a('18/04/2026'), HOY), 'Caducó el 18/04/2026, hace 7 meses');
+  assert.equal(fraseVencimiento(a('29/11/2026'), HOY), 'Caduca el 29/11/2026, en 4 días');
+  assert.equal(fraseVencimiento(a('25/11/2026'), HOY), 'Caduca HOY (25/11/2026)');
+  assert.equal(fraseVencimiento(a('14/05/28'), HOY), 'En regla hasta el 14/05/2028');
+  assert.equal(fraseVencimiento(a('sin fecha', { status: 'unknown', text: 'Falta la fecha' }), HOY), 'Falta apuntar la fecha');
+  assert.equal(fraseVencimiento(a('18/04/2026', { cita: { fecha: '02/12/2026', hora: '16:30', lugar: 'Inca' } }), HOY),
+    'Cita el 02/12/2026 a las 16:30 en Inca · caducó el 18/04/2026, hace 7 meses');
 });
 prueba('«N/A» = no le toca', () => {
   for (const s of ['N/A', 'n/a', 'No aplica', 'NO TIENE', '-']) assert.ok(noAplica(s), s);

@@ -109,6 +109,43 @@ export const getAlertStatus = (dateStr: string, priority: 'low' | 'medium' | 'hi
   return { status: 'success', text: 'En regla' };
 };
 
+// ---------- Cómo se dice en pantalla (26/11/2026, Facu: «que no confunda a una persona que lo ve por primera vez») ----------
+// Nombre corto de cada vencimiento en la web (el largo, «ITV Técnica», «Vencimiento ATP», sigue en el correo y Telegram).
+export const NOMBRE_CORTO: Record<ClaveVencimiento, string> = { itv: 'ITV', atp: 'ATP', tacografo: 'Tacógrafo', seguro: 'Seguro' };
+
+// Las fechas se guardaron escritas de mil formas («02/29», «23/10/24», «sep/2026»): en pantalla, siempre dd/mm/aaaa.
+// Lo guardado no se toca. Si no se entiende, sale tal cual.
+export const fechaEnPantalla = (s: unknown) => {
+  const d = parseEsDate(s);
+  return d ? `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}` : String(s ?? '');
+};
+
+// «3 días», «7 meses», «2 años»
+const cuantoTiempo = (dias: number) => {
+  const n = Math.abs(dias);
+  if (n < 45) return `${n} ${n === 1 ? 'día' : 'días'}`;
+  if (n < 730) { const m = Math.round(n / 30.44); return `${m} ${m === 1 ? 'mes' : 'meses'}`; }
+  return `${Math.floor(n / 365.25)} años`;
+};
+
+// Un vencimiento dicho con una frase: «Caducó el 18/04/2026, hace 7 meses», «Caduca el 30/11/2026, en 4 días»,
+// «Falta apuntar la fecha», «Cita el 02/12/2026 a las 16:30 en Inca · caducó el…». «hoy» se puede pasar en las pruebas.
+export const fraseVencimiento = (a: AlertaVehiculo, hoy = new Date()): string => {
+  const d = parseEsDate(a.date);
+  const dias = d ? differenceInCalendarDays(d, hoy) : 0;
+  const frase =
+    a.status === 'unknown' ? (a.text === 'Falta la fecha' ? 'Falta apuntar la fecha' : `No se entiende la fecha «${a.date}»: corrígela en la ficha`)
+    : !d ? a.text
+    : dias < 0 ? `Caducó el ${fechaEnPantalla(a.date)}, hace ${cuantoTiempo(dias)}`
+    : dias === 0 ? `Caduca HOY (${fechaEnPantalla(a.date)})`
+    : dias === 1 ? `Caduca mañana (${fechaEnPantalla(a.date)})`
+    : a.status === 'warning' ? `Caduca el ${fechaEnPantalla(a.date)}, en ${cuantoTiempo(dias)}`
+    : `En regla hasta el ${fechaEnPantalla(a.date)}`;
+  if (!a.cita) return frase;
+  const cita = `Cita el ${a.cita.fecha}${a.cita.hora ? ' a las ' + a.cita.hora : ''}${a.cita.lugar ? ' en ' + a.cita.lugar : ''}`;
+  return `${cita} · ${frase.charAt(0).toLowerCase()}${frase.slice(1)}`;
+};
+
 export const getMissingFields = (v: Vehicle) => {
   const missing: string[] = [];
   if (!v.matricula) missing.push('Matrícula');

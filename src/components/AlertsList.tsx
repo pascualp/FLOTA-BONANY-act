@@ -1,212 +1,132 @@
-import React, { useState, useMemo } from 'react';
-import { CheckCircle2, Search, Filter, Mail } from 'lucide-react';
-import { Vehicle, Alert } from '../types';
-import { parseEsDate, textoCita } from '../utils';
+import { useMemo, useState } from 'react';
+import { CheckCircle2, ChevronRight, Search } from 'lucide-react';
+import type { Vehicle } from '../types';
+import { fechaEnPantalla, fraseVencimiento, getVehicleAlerts, NOMBRE_CORTO, parseEsDate, type AlertaVehiculo } from '../utils';
+import { incidenciasDe } from '../incidencias';
+
+// «Qué hay que hacer» (rehecha el 26/11/2026, Facu: «mejora la interfaz para que no confunda a una persona que lo ve
+// por primera vez»). Antes: una tabla con todas las filas en rosa, «EN REGLA» mezclado con lo vencido, fechas escritas
+// de tres formas y un botón «Gestionar Vehículo». Ahora: arriba cuántas cosas hay de cada tipo (y tocarlas filtra);
+// debajo, cada vehículo con SOLO lo que hay que hacer, dicho con una frase. Lo que está en regla no sale aquí.
+
+type Tipo = 'vencido' | 'pronto' | 'incidencia' | 'falta' | 'cita';
+type Cosa = { tipo: Tipo; clave: string; que: string; frase: string; cuando: number };
+
+const TIPOS: { id: Tipo; titulo: string; ayuda: string; punto: string; borde: string; marco: string }[] = [
+  { id: 'vencido', titulo: 'Caducado', ayuda: 'Hay que renovarlo ya', punto: 'bg-red-500', borde: 'border-l-red-500', marco: 'ring-red-400 bg-red-50' },
+  { id: 'pronto', titulo: 'Caduca pronto', ayuda: 'Pedir cita ya', punto: 'bg-amber-500', borde: 'border-l-amber-500', marco: 'ring-amber-400 bg-amber-50' },
+  { id: 'incidencia', titulo: 'Avisos del taller', ayuda: 'Cosas por arreglar', punto: 'bg-orange-400', borde: 'border-l-orange-400', marco: 'ring-orange-300 bg-orange-50' },
+  { id: 'falta', titulo: 'Falta la fecha', ayuda: 'Apuntarla en la ficha', punto: 'bg-slate-400', borde: 'border-l-slate-400', marco: 'ring-slate-400 bg-slate-100' },
+  { id: 'cita', titulo: 'Con cita pedida', ayuda: 'Solo falta llevarlo', punto: 'bg-blue-500', borde: 'border-l-blue-500', marco: 'ring-blue-400 bg-blue-50' },
+];
+const ORDEN: Record<Tipo, number> = { vencido: 0, pronto: 1, incidencia: 2, falta: 3, cita: 4 };
+const tipo = (id: Tipo) => TIPOS.find((t) => t.id === id)!;
+
+const tipoDe = (a: AlertaVehiculo): Tipo | null =>
+  a.cita ? 'cita' : a.status === 'danger' ? 'vencido' : a.status === 'warning' ? 'pronto' : a.status === 'unknown' ? 'falta' : null;
+const cuando = (fecha: string) => parseEsDate(fecha)?.getTime() ?? Number.MAX_SAFE_INTEGER;
+
+// Lo que hay que hacer de un vehículo: sus vencimientos que no están en regla y sus incidencias del taller.
+const cosasDe = (v: Vehicle): Cosa[] => [
+  ...getVehicleAlerts(v).flatMap((a) => {
+    const t = tipoDe(a);
+    return t ? [{ tipo: t, clave: a.clave, que: NOMBRE_CORTO[a.clave], frase: fraseVencimiento(a), cuando: cuando(a.date) }] : [];
+  }),
+  ...incidenciasDe(v).map((i) => ({ tipo: 'incidencia' as const, clave: i.id, que: 'Taller', frase: `${i.texto} (desde el ${fechaEnPantalla(i.fecha)})`, cuando: cuando(i.fecha) })),
+].sort((x, y) => ORDEN[x.tipo] - ORDEN[y.tipo] || x.cuando - y.cuando);
 
 interface AlertsListProps {
-  alerts: Alert[];
+  vehicles: Vehicle[];
   setSelectedVehicle: (vehicle: Vehicle) => void;
   setIsEditing: (isEditing: boolean) => void;
 }
 
-export const AlertsList = ({ alerts, setSelectedVehicle, setIsEditing }: AlertsListProps) => {
-  const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'danger' | 'warning' | 'unknown' | 'success'>('all');
-  const [sortBy, setBy] = useState<'date' | 'matricula' | 'status'>('status');
+export const AlertsList = ({ vehicles, setSelectedVehicle, setIsEditing }: AlertsListProps) => {
+  const [buscar, setBuscar] = useState('');
+  const [filtro, setFiltro] = useState<Tipo | null>(null);
 
-  const groupedAlerts = useMemo(() => {
-    const groups: Record<string, { vehicle: Vehicle; alerts: Alert[] }> = {};
-    
-    // First, filter based on search and status
-    const initialFiltered = alerts.filter(al => {
-      // String(): hay fichas con campos vacíos o que no son texto; sin esto la pestaña se quedaba en blanco.
-      const t = searchTerm.toLowerCase();
-      const matchesSearch = [al.vehicle.matricula, al.vehicle.marca, al.type].some(x => String(x ?? '').toLowerCase().includes(t));
-      
-      const matchesStatus = statusFilter === 'all' || al.status.status === statusFilter;
-      
-      return matchesSearch && matchesStatus;
-    });
+  const grupos = useMemo(() => vehicles.map((v) => ({ v, cosas: cosasDe(v) })).filter((g) => g.cosas.length), [vehicles]);
+  const cuantas = (t: Tipo) => grupos.reduce((n, g) => n + g.cosas.filter((c) => c.tipo === t).length, 0);
+  const enRegla = vehicles.length - grupos.length;
 
-    // Group by vehicle ID
-    initialFiltered.forEach(al => {
-      const vId = al.vehicle.id || al.vehicle.matricula;
-      if (!groups[vId]) {
-        groups[vId] = { vehicle: al.vehicle, alerts: [] };
-      }
-      groups[vId].alerts.push(al);
-    });
+  const t = buscar.trim().toLowerCase();
+  const visibles = grupos
+    .map((g) => ({ ...g, cosas: filtro ? g.cosas.filter((c) => c.tipo === filtro) : g.cosas }))
+    .filter((g) => g.cosas.length && (!t || [g.v.matricula, g.v.marca, g.v.chofer, g.v.tipo].some((x) => String(x ?? '').toLowerCase().includes(t))))
+    // Lo más urgente arriba: primero por el peor tipo, luego por la fecha más antigua.
+    .sort((a, b) => ORDEN[a.cosas[0].tipo] - ORDEN[b.cosas[0].tipo] || a.cosas[0].cuando - b.cosas[0].cuando);
 
-    // Convert back to array
-    return Object.values(groups).sort((a, b) => {
-      if (sortBy === 'status') {
-        const priority = { danger: 0, warning: 1, unknown: 2, success: 3 };   // una fecha que no se entiende va antes que lo que está en regla
-        const getWorstStatus = (als: Alert[]) => Math.min(...als.map(al => priority[al.status.status as keyof typeof priority] ?? 4));
-        const pA = getWorstStatus(a.alerts);
-        const pB = getWorstStatus(b.alerts);
-        if (pA !== pB) return pA - pB;
-      }
-
-      if (sortBy === 'matricula') {
-        return a.vehicle.matricula.localeCompare(b.vehicle.matricula, undefined, { numeric: true, sensitivity: 'base' });
-      }
-
-      const getEarliestDate = (als: Alert[]) => {
-        const dates = als.map(al => parseEsDate(al.date)).filter(d => d !== null) as Date[];
-        if (dates.length === 0) return 8640000000000000;
-        return Math.min(...dates.map(d => d.getTime()));
-      };
-      return getEarliestDate(a.alerts) - getEarliestDate(b.alerts);
-    });
-  }, [alerts, searchTerm, statusFilter, sortBy]);
+  const abrir = (v: Vehicle) => { setSelectedVehicle(v); setIsEditing(false); };
 
   return (
-    <div className="flex-1 min-w-0 bg-white rounded-3xl border border-slate-200 overflow-hidden flex flex-col">
-      <div className="p-4 md:p-6 border-b border-slate-100 space-y-4">
-        <div className="hidden md:flex justify-between items-center">
-          <div>
-            <h4 className="font-bold text-slate-800 text-lg">Vencimientos</h4>
-            <p className="text-sm text-slate-500">ITV, ATP, tacógrafo y seguro de cada vehículo. Toca uno para ver su ficha.</p>
-          </div>
-        </div>
-
-        <div className="flex flex-col md:flex-row gap-4">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-            <input 
-              type="text" 
-              placeholder="Buscar por matrícula, marca o trámite..." 
-              className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-100 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </div>
-          
-          <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
-            {[
-              { id: 'all', label: 'Todos' },
-              { id: 'danger', label: 'Vencidos' },
-              { id: 'warning', label: 'Próximos' },
-              { id: 'unknown', label: 'Fechas a revisar' },
-              { id: 'success', label: 'Al día' }
-            ].map(f => (
-              <button
-                key={f.id}
-                onClick={() => setStatusFilter(f.id as any)}
-                className={`px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
-                  statusFilter === f.id 
-                    ? 'bg-blue-600 text-white shadow-md shadow-blue-200' 
-                    : 'bg-slate-50 text-slate-500 hover:bg-slate-100'
-                }`}
-              >
-                {f.label}
-              </button>
-            ))}
-          </div>
-
-          <div className="flex items-center gap-2 bg-slate-50 p-1 rounded-xl border border-slate-100">
-            <Filter className="w-3.5 h-3.5 text-slate-400 ml-2" />
-            <select 
-              className="bg-transparent text-xs font-bold text-slate-600 outline-none pr-2 py-1 cursor-pointer"
-              value={sortBy}
-              onChange={(e) => setBy(e.target.value as any)}
-            >
-              <option value="status">Prioridad: Estado</option>
-              <option value="date">Orden: Fecha</option>
-              <option value="matricula">Orden: Numérico (Matrícula)</option>
-            </select>
-          </div>
-        </div>
+    <div className="flex-1 min-w-0 flex flex-col gap-4">
+      {/* Cuántas cosas hay de cada tipo. Tocar una caja enseña solo esas (y tocarla otra vez, todo). */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-2 md:gap-3">
+        {TIPOS.map((x) => {
+          const n = cuantas(x.id);
+          const activa = filtro === x.id;
+          return (
+            <button key={x.id} onClick={() => setFiltro(activa ? null : x.id)} disabled={n === 0 && !activa}
+              className={`text-left p-3 md:p-4 rounded-2xl border transition-all ${activa ? `ring-2 border-transparent ${x.marco}` : 'bg-white border-slate-200 hover:border-slate-300'} ${n === 0 ? 'opacity-50' : ''}`}>
+              <span className="flex items-center gap-2 text-xs md:text-sm font-bold text-slate-700"><span className={`w-2.5 h-2.5 rounded-full shrink-0 ${x.punto}`} />{x.titulo}</span>
+              <span className="block text-2xl md:text-3xl font-bold text-slate-900 mt-1">{n}</span>
+              <span className="block text-[11px] md:text-xs text-slate-500">{x.ayuda}</span>
+            </button>
+          );
+        })}
       </div>
 
-      <div className="flex-1 overflow-y-auto p-2">
-        {groupedAlerts.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-slate-500 py-12">
-            <CheckCircle2 className="w-12 h-12 mb-4 text-emerald-400 opacity-50" />
-            <p className="font-medium">No se encontraron resultados</p>
-            <p className="text-xs opacity-70">Prueba ajustando los filtros o la búsqueda</p>
+      <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden flex flex-col">
+        <div className="p-4 md:p-5 border-b border-slate-100 flex flex-col md:flex-row md:items-center gap-3 justify-between">
+          <div className="text-sm text-slate-600">
+            {filtro ? (
+              <p>Viendo solo: <b>{tipo(filtro).titulo.toLowerCase()}</b> · <button onClick={() => setFiltro(null)} className="text-blue-600 font-bold hover:underline">ver todo</button></p>
+            ) : (
+              <p>Toca un vehículo para abrir su ficha: ahí se apunta la fecha nueva o la cita.</p>
+            )}
+            {enRegla > 0 && (
+              <p className="text-xs text-emerald-700 mt-0.5">✔ {enRegla === 1 ? '1 vehículo tiene' : `${enRegla} vehículos tienen`} todo en regla: no salen aquí (están en «Vehículos»).</p>
+            )}
           </div>
-        ) : (
-          <table className="w-full text-left">
-            <thead>
-              <tr className="text-[10px] text-slate-400 font-bold uppercase tracking-widest border-b border-slate-100">
-                <th className="hidden md:table-cell px-6 py-3 w-10">#</th>
-                <th className="px-3 md:px-4 py-3">Vehículo</th>
-                <th className="px-3 md:px-4 py-3">Vencimientos</th>
-                <th className="hidden md:table-cell px-4 py-3 text-right">Acción</th>
-              </tr>
-            </thead>
-            <tbody className="text-sm">
-              {groupedAlerts.map((group, idx) => {
-                // Lo que ya tiene cita sacada no pinta la fila de rojo/ámbar: pasa a azul (pendiente de llevar).
-                const hasDanger = group.alerts.some(a => a.status.status === 'danger' && !a.cita);
-                const hasWarning = group.alerts.some(a => a.status.status === 'warning' && !a.cita);
-                const hasRevisar = group.alerts.some(a => a.status.status === 'unknown' && !a.cita);
-                const hasCita = group.alerts.some(a => a.cita);
+          <div className="relative md:w-72 shrink-0">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <input type="text" placeholder="Buscar matrícula, marca o chófer" value={buscar} onChange={(e) => setBuscar(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+          </div>
+        </div>
 
-                return (
-                   <tr
-                    key={group.vehicle.id}
-                    // Tocar la fila abre la ficha (en el móvil no cabe el botón de la derecha).
-                    onClick={() => { setSelectedVehicle(group.vehicle); setIsEditing(false); }}
-                    className={`transition-colors group border-b border-white cursor-pointer ${
-                      hasDanger ? 'bg-red-100' :
-                      hasWarning ? 'bg-amber-100' :
-                      hasRevisar ? 'bg-slate-100' :
-                      hasCita ? 'bg-blue-50' :
-                      'bg-white'
-                    }`}
-                  >
-                    <td className="hidden md:table-cell px-6 py-5 text-[10px] font-bold text-slate-400">{idx + 1}</td>
-                    <td className="px-3 md:px-4 py-4 md:py-5 align-top">
-                      <div className="font-bold text-slate-900">{group.vehicle.matricula}</div>
-                      <div className="text-[10px] text-slate-500 font-medium uppercase leading-tight">
-                        {group.vehicle.marca} {group.vehicle.tipo}
-                      </div>
-                    </td>
-                    <td className="px-3 md:px-4 py-4 md:py-5">
-                      <div className="space-y-3">
-                        {group.alerts.map((al, aIdx) => (
-                          <div key={aIdx} className="flex flex-wrap items-center gap-x-4 gap-y-1">
-                            <div className="min-w-[120px]">
-                              <span className="font-bold text-slate-700 block">{al.type}</span>
-                              <span className="text-[10px] text-slate-500 font-medium">{al.date}</span>
-                            </div>
-                            <span className={`text-[9px] px-2.5 py-0.5 rounded-full font-black uppercase tracking-wider ${
-                              al.status.status === 'danger' ? 'bg-red-600 text-white shadow-sm' :
-                              al.status.status === 'warning' ? 'bg-amber-500 text-white shadow-sm' :
-                              // Una fecha que no se entiende NO es «en regla»: gris, para que alguien la corrija.
-                              al.status.status === 'unknown' ? 'bg-slate-500 text-white shadow-sm' :
-                              'bg-emerald-500 text-white shadow-sm'
-                            }`}>
-                              {al.status.text}
-                            </span>
-                            {al.cita && (
-                              <span className="text-[9px] px-2.5 py-0.5 rounded-full font-black uppercase tracking-wider bg-blue-600 text-white shadow-sm">
-                                📅 {textoCita(al.cita)}
-                              </span>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    </td>
-                    <td className="hidden md:table-cell px-6 py-5 text-right">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedVehicle(group.vehicle);
-                          setIsEditing(true);
-                        }}
-                        className="text-[11px] font-bold px-5 py-2.5 rounded-full transition-all shadow-sm bg-white text-blue-600 hover:shadow-md border border-slate-200 whitespace-nowrap"
-                      >
-                        Gestionar Vehículo
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+        {grupos.length === 0 ? (
+          <div className="flex flex-col items-center justify-center text-slate-500 py-16">
+            <CheckCircle2 className="w-12 h-12 mb-3 text-emerald-500" />
+            <p className="font-bold text-slate-700">Todo en regla</p>
+            <p className="text-sm">Ningún vehículo tiene nada caducado, por caducar ni pendiente.</p>
+          </div>
+        ) : visibles.length === 0 ? (
+          <p className="text-center text-sm text-slate-500 py-12">Ningún vehículo coincide con la búsqueda.</p>
+        ) : (
+          <ul className="divide-y divide-slate-100">
+            {visibles.map(({ v, cosas }) => (
+              <li key={v.id} role="button" tabIndex={0} onClick={() => abrir(v)} onKeyDown={(e) => e.key === 'Enter' && abrir(v)}
+                className={`flex items-center gap-3 px-4 md:px-5 py-4 border-l-4 cursor-pointer hover:bg-slate-50 focus:bg-slate-50 outline-none ${tipo(cosas[0].tipo).borde}`}>
+                <div className="min-w-0 flex-1">
+                  <p className="font-bold text-slate-900">
+                    {v.matricula}
+                    <span className="ml-2 font-normal text-xs text-slate-500">{[v.marca, v.tipo, v.chofer].filter(Boolean).join(' · ')}</span>
+                  </p>
+                  <ul className="mt-1.5 space-y-1">
+                    {cosas.map((c) => (
+                      <li key={c.clave} className="flex items-start gap-2 text-sm leading-snug">
+                        <span className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${tipo(c.tipo).punto}`} />
+                        <span><b className="text-slate-700">{c.que}:</b> <span className="text-slate-600">{c.frase}</span></span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                <span className="hidden md:flex items-center text-xs font-bold text-blue-600 shrink-0">Abrir ficha<ChevronRight className="w-4 h-4" /></span>
+                <ChevronRight className="md:hidden w-5 h-5 text-slate-300 shrink-0" />
+              </li>
+            ))}
+          </ul>
         )}
       </div>
     </div>

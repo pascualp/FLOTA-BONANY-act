@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { Car, FileSearch, ArchiveX, CheckCircle2, FileWarning } from 'lucide-react';
 import { Vehicle, VehicleDocument } from '../types';
 import { estadoDocumentacion } from '../documentos';
-import { getVehicleAlerts, papelesCaducados, problemasDe, VENCIMIENTOS } from '../utils';
+import { fechaEnPantalla, fraseVencimiento, getVehicleAlerts, NOMBRE_CORTO, papelesCaducados, problemasDe, VENCIMIENTOS } from '../utils';
 import { incidenciasDe } from '../incidencias';
 
 interface VehicleListProps {
@@ -42,7 +42,7 @@ export const VehicleList = ({ vehicles, fuera, docsPorVehiculo, searchQuery, set
         <div>
           <h4 className="font-bold text-slate-800">En la flota ({vehicles.length})</h4>
           <p className="text-xs text-slate-500">
-            {incompletos === 0 ? 'Todos tienen la documentación completa.' : `${incompletos} con documentación incompleta.`}
+            {incompletos === 0 ? 'Todos tienen sus papeles subidos.' : `A ${incompletos} ${incompletos === 1 ? 'le faltan' : 'les faltan'} papeles por subir. Toca uno para ver su ficha.`}
           </p>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
@@ -50,7 +50,7 @@ export const VehicleList = ({ vehicles, fuera, docsPorVehiculo, searchQuery, set
             onClick={() => setSoloIncompletos(!soloIncompletos)}
             className={`px-4 py-2 rounded-full text-xs font-bold border transition-colors ${soloIncompletos ? 'bg-red-50 text-red-600 border-red-200' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'}`}
           >
-            {soloIncompletos ? 'Viendo solo incompletos' : 'Ver solo incompletos'}
+            {soloIncompletos ? 'Viendo solo a los que faltan papeles · ver todos' : 'Ver solo a los que faltan papeles'}
           </button>
           <div className="relative w-full max-w-sm">
             <input
@@ -90,12 +90,12 @@ export const VehicleList = ({ vehicles, fuera, docsPorVehiculo, searchQuery, set
                       <p className="text-xs text-slate-500">{v.marca} - {v.tipo}{v.chofer ? ` · ${v.chofer}` : ''}</p>
                       {/* Solo lo que hay que mirar: lo que está en regla no cuenta como alerta. */}
                       <div className="flex flex-wrap gap-1 mt-2">
-                        {p.vencidos > 0 && <Insignia clase="bg-red-100 text-red-600">{p.vencidos} {p.vencidos === 1 ? 'vencido' : 'vencidos'}</Insignia>}
-                        {p.pronto > 0 && <Insignia clase="bg-amber-100 text-amber-700">{p.pronto} {p.pronto === 1 ? 'vence pronto' : 'vencen pronto'}</Insignia>}
-                        {p.revisar > 0 && <Insignia clase="bg-slate-100 text-slate-600">{p.revisar} {p.revisar === 1 ? 'fecha a revisar' : 'fechas a revisar'}</Insignia>}
-                        {p.conCita > 0 && <Insignia clase="bg-blue-100 text-blue-700">📅 {p.conCita === 1 ? 'cita sacada' : `${p.conCita} citas sacadas`}</Insignia>}
-                        {incidenciasDe(v).length > 0 && <Insignia clase="bg-amber-100 text-amber-800">🛠 {incidenciasDe(v).length === 1 ? '1 incidencia' : `${incidenciasDe(v).length} incidencias`}</Insignia>}
-                        {p.vencidos + p.pronto + p.revisar + p.conCita + incidenciasDe(v).length === 0 && <Insignia clase="bg-emerald-50 text-emerald-700">✔ Al día</Insignia>}
+                        {p.vencidos > 0 && <Insignia clase="bg-red-100 text-red-700">{p.vencidos} {p.vencidos === 1 ? 'caducado' : 'caducados'}</Insignia>}
+                        {p.pronto > 0 && <Insignia clase="bg-amber-100 text-amber-800">{p.pronto === 1 ? '1 caduca pronto' : `${p.pronto} caducan pronto`}</Insignia>}
+                        {p.revisar > 0 && <Insignia clase="bg-slate-100 text-slate-600">{p.revisar === 1 ? 'falta 1 fecha' : `faltan ${p.revisar} fechas`}</Insignia>}
+                        {p.conCita > 0 && <Insignia clase="bg-blue-100 text-blue-700">📅 {p.conCita === 1 ? 'cita pedida' : `${p.conCita} citas pedidas`}</Insignia>}
+                        {incidenciasDe(v).length > 0 && <Insignia clase="bg-orange-100 text-orange-800">🛠 {incidenciasDe(v).length === 1 ? '1 aviso del taller' : `${incidenciasDe(v).length} avisos del taller`}</Insignia>}
+                        {p.vencidos + p.pronto + p.revisar + p.conCita + incidenciasDe(v).length === 0 && <Insignia clase="bg-emerald-50 text-emerald-700">✔ Todo en regla</Insignia>}
                       </div>
                     </div>
                     <Car className="w-5 h-5 text-blue-400 shrink-0" />
@@ -104,26 +104,24 @@ export const VehicleList = ({ vehicles, fuera, docsPorVehiculo, searchQuery, set
                     {VENCIMIENTOS.map(t => {
                       const f = fechas.find(a => a.clave === t.clave);
                       return (
+                        // Fecha siempre dd/mm/aaaa; y en palabras lo que no es una fecha («falta apuntarla», «no le toca»).
                         <div key={t.clave} className="flex justify-between gap-2">
-                          <span className="text-slate-500 truncate">{t.clave === 'seguro' ? `Seguro${v.aseguradora ? ' · ' + v.aseguradora : ''}` : t.label}:</span>
-                          <span className={`whitespace-nowrap ${f ? (f.cita ? 'text-blue-700 font-bold' : COLOR_FECHA[f.status]) : 'text-slate-300'}`}
-                            title={f ? (f.cita ? `Cita ${f.cita.fecha}` : f.text) : 'Sin fecha'}>
-                            {!f ? '—' : f.text === 'Falta la fecha' ? 'falta' : `${f.cita ? '📅 ' : ''}${f.date}${f.status === 'unknown' ? ' (?)' : ''}`}
+                          <span className="text-slate-500 truncate">{NOMBRE_CORTO[t.clave]}{t.clave === 'seguro' && v.aseguradora ? ` (${v.aseguradora})` : ''}</span>
+                          <span className={`whitespace-nowrap ${f ? (f.cita ? 'text-blue-700 font-bold' : COLOR_FECHA[f.status]) : 'text-slate-400'}`}
+                            title={f ? fraseVencimiento(f) : 'A este vehículo no le toca'}>
+                            {!f ? 'no le toca' : f.text === 'Falta la fecha' ? 'falta apuntarla' : f.cita ? `📅 cita el ${f.cita.fecha}`
+                              : f.status === 'unknown' ? `${f.date} (?)` : `${f.status === 'danger' ? 'caducó el ' : 'hasta el '}${fechaEnPantalla(f.date)}`}
                           </span>
                         </div>
                       );
                     })}
                     <div className="pt-2 mt-1 border-t border-slate-50">
-                      <div className="flex justify-between items-center">
-                        <span className="text-slate-500">Documentación:</span>
-                        {e.faltan.length === 0 ? (
-                          <span className="flex items-center gap-1 text-emerald-600 font-bold"><CheckCircle2 className="w-3.5 h-3.5" /> Completa</span>
-                        ) : (
-                          <span className="flex items-center gap-1 text-red-600 font-bold"><FileWarning className="w-3.5 h-3.5" /> Tiene {e.completos} de {e.total}</span>
-                        )}
-                      </div>
-                      {e.faltan.length > 0 && <p className="text-[11px] text-red-500 mt-1">Falta: {e.faltan.join(', ')}</p>}
-                      {vencidos.length > 0 && <p className="text-[11px] text-amber-700 mt-1">⚠ Papel vencido: {vencidos.join(', ')}</p>}
+                      {e.faltan.length === 0 ? (
+                        <p className="flex items-center gap-1 text-emerald-700 font-bold"><CheckCircle2 className="w-3.5 h-3.5" /> Papeles: están todos ({e.total})</p>
+                      ) : (
+                        <p className="flex items-start gap-1 text-red-600"><FileWarning className="w-3.5 h-3.5 shrink-0 mt-px" /><span><b>Faltan papeles:</b> {e.faltan.join(', ')}</span></p>
+                      )}
+                      {vencidos.length > 0 && <p className="text-[11px] text-amber-700 mt-1">⚠ Hay que subir el papel nuevo de: {vencidos.join(', ')} (el guardado ya caducó)</p>}
                     </div>
                   </div>
                 </div>
