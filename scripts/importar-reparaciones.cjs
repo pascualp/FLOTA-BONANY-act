@@ -53,6 +53,7 @@ const euros = (n) => (n == null ? '' : n.toLocaleString('es-ES', { style: 'curre
   const yaHay = new Map();     // id vehículo → Set de ref ya importadas
   const previas = new Map();   // id vehículo → reparaciones que ya tiene (para ver si un aviso ya se arregló)
   let nuevas = 0, repetidas = 0, problemas = 0;
+  const resumen = new Map();   // id vehículo → { n, desde, hasta } de lo importado en bloque (Winclass)
   for (const r of lista) {
     const mat = norm(r.matricula);
     const vs = vehs.filter((d) => norm(d.get('matricula')) === mat);
@@ -103,11 +104,21 @@ const euros = (n) => (n == null ? '' : n.toLocaleString('es-ES', { style: 'curre
       ...(documentoId ? { documentoId } : {}), origen: r.origen || 'escaneo', ref,
       creadoPor: 'Importación (Claude)', creado: FieldValue.serverTimestamp(),
     });
-    // Última reparación (la más reciente) e historial del vehículo.
+    // Última reparación (la más reciente) e historial del vehículo. El historial guarda solo los HISTORIAL_MAX últimos
+    // cambios: en una importación masiva (origen «winclass», cientos de facturas) una línea por reparación BORRARÍA los
+    // cambios de verdad (fechas, copia en el camión…). Por eso esas van en una sola línea por vehículo, al final.
+    const enBloque = r.origen === 'winclass';
     const ult = v.get('ultimaReparacion');
     const masNueva = !ult || diaDe(r.fecha) > diaDe(ult);
     const cambio = { cuando: new Date().toISOString(), por: 'Importación de facturas (Claude)', que: `Reparación: ${r.fecha} · ${r.que} · ${euros(r.importe)}`.slice(0, 300) };
-    const historial = [cambio, ...(v.get('historial') || [])].slice(0, HISTORIAL_MAX);
+    const historial = enBloque ? null : [cambio, ...(v.get('historial') || [])].slice(0, HISTORIAL_MAX);
+    if (enBloque) {
+      const s = resumen.get(v.id) || { n: 0, desde: r.fecha, hasta: r.fecha };
+      s.n++;
+      if (diaDe(r.fecha) < diaDe(s.desde)) s.desde = r.fecha;
+      if (diaDe(r.fecha) > diaDe(s.hasta)) s.hasta = r.fecha;
+      resumen.set(v.id, s);
+    }
     // Lo que el taller avisa que queda pendiente → incidencia del vehículo (sale cada mañana en Telegram).
     // Misma forma que src/incidencias.ts (nuevaIncidencia / conIncidencia).
     let incidencias;
@@ -119,10 +130,22 @@ const euros = (n) => (n == null ? '' : n.toLocaleString('es-ES', { style: 'curre
           origen: `${r.taller || 'taller'}${r.factura ? ', factura ' + r.factura : ''}`.slice(0, 120), repId: repRef.id }];
       }
     }
-    await v.ref.update({ historial, ...(masNueva ? { ultimaReparacion: r.fecha } : {}), ...(incidencias ? { incidencias } : {}) });
-    // Se vuelve a leer la ficha (1 lectura) para que la siguiente reparación del mismo vehículo parta del historial nuevo.
-    vehs[vehs.indexOf(v)] = await v.ref.get();
+    const cambios = { ...(historial ? { historial } : {}), ...(masNueva ? { ultimaReparacion: r.fecha } : {}), ...(incidencias ? { incidencias } : {}) };
+    if (Object.keys(cambios).length) {
+      await v.ref.update(cambios);
+      // Se vuelve a leer la ficha (1 lectura) para que la siguiente reparación del mismo vehículo parta de lo nuevo.
+      vehs[vehs.indexOf(v)] = await v.ref.get();
+    }
     console.log(`OK ${linea}${avisoTxt ? '\n' + avisoTxt : ''}`);
+  }
+  // Importación masiva: una línea de historial por vehículo con cuántas reparaciones entraron y de qué fechas.
+  for (const [id, s] of resumen) {
+    const ref = db.collection('vehicles').doc(id);
+    const actual = await ref.get();
+    const cambio = { cuando: new Date().toISOString(), por: 'Importación de facturas (Claude)',
+      que: `Importadas ${s.n} ${s.n === 1 ? 'reparación' : 'reparaciones'} de Winclass (facturas del ${s.desde} al ${s.hasta})` };
+    await ref.update({ historial: [cambio, ...(actual.get('historial') || [])].slice(0, HISTORIAL_MAX) });
+    console.log(`H  ${actual.get('matricula')}: ${cambio.que}`);
   }
   console.log(`\n${HACER ? 'Importadas' : 'Se importarían'}: ${nuevas} · ya estaban: ${repetidas} · problemas: ${problemas}`);
 })().catch((e) => { console.error('ERROR', e.message); process.exit(1); });
