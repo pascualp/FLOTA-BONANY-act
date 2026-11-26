@@ -15,18 +15,20 @@ function useFuente(v: Vehicle, url?: string) {
   useEffect(() => setFalla(false), [url]);
   const modelo = modeloDe(v);
   const real = !!url && !falla;
-  return { modelo, real, src: real ? url : modelo?.img, alFallar: () => url && setFalla(true) };
+  // La de muestra es el vehículo recortado sobre blanco: se enseña ENTERO (contain) sobre blanco. La real llena el hueco.
+  const encaje = real ? 'object-cover bg-slate-100' : 'object-contain bg-white';
+  return { modelo, real, encaje, src: real ? url : modelo?.img, alFallar: () => url && setFalla(true) };
 }
 
 // Solo la imagen, en pequeño (tarjetas de la lista).
 export function ImagenVehiculo({ v, url, className = '' }: { v: Vehicle; url?: string; className?: string }) {
-  const { modelo, real, src, alFallar } = useFuente(v, url);
+  const { modelo, real, encaje, src, alFallar } = useFuente(v, url);
   if (!src) {
     return <div className={`${className} bg-slate-100 flex items-center justify-center`}><Car className="w-1/2 h-1/2 text-slate-300" /></div>;
   }
   return (
     <img src={src} alt={real ? `Foto de ${v.matricula}` : `${modelo?.nombre} (foto de muestra)`} loading="lazy" onError={alFallar}
-      title={real ? 'Foto real' : `Foto de muestra: ${modelo?.nombre}`} className={`${className} object-cover bg-slate-100`} />
+      title={real ? 'Foto real' : `Foto de muestra: ${modelo?.nombre}`} className={`${className} ${encaje}`} />
   );
 }
 
@@ -42,7 +44,7 @@ interface FotoFichaProps {
 
 // En la ficha: la imagen en grande, de quién es y los botones.
 export function FotoFicha({ v, url, demo, onFotoLocal }: FotoFichaProps) {
-  const { modelo, real, src, alFallar } = useFuente(v, url);
+  const { modelo, real, encaje, src, alFallar } = useFuente(v, url);
   const selector = useRef<HTMLInputElement>(null);
   const [ocupado, setOcupado] = useState('');
 
@@ -87,7 +89,7 @@ export function FotoFicha({ v, url, demo, onFotoLocal }: FotoFichaProps) {
       <div className="relative w-full sm:w-72 shrink-0">
         {src ? (
           <img src={src} alt={real ? `Foto de ${v.matricula}` : `${modelo?.nombre} (foto de muestra)`} onError={alFallar}
-            className="w-full aspect-[3/2] object-cover rounded-2xl border border-slate-200 bg-slate-100" />
+            className={`w-full aspect-[3/2] rounded-2xl border border-slate-200 ${encaje}`} />
         ) : (
           <div className="w-full aspect-[3/2] rounded-2xl border border-dashed border-slate-300 bg-slate-50 flex items-center justify-center">
             <Car className="w-16 h-16 text-slate-300" />
@@ -110,7 +112,7 @@ export function FotoFicha({ v, url, demo, onFotoLocal }: FotoFichaProps) {
             <>
               <b className="text-slate-700">{modelo.nombre}</b>: foto de muestra del modelo, no es el nuestro.{' '}
               <a href={modelo.pagina} target="_blank" rel="noreferrer" className="underline hover:text-slate-700">
-                Foto: {modelo.autor} · {modelo.licencia} (Wikimedia Commons)
+                Foto: {modelo.autor} · {modelo.licencia} (Wikimedia Commons), fondo quitado
               </a>
             </>
           ) : (

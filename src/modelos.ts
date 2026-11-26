@@ -3,6 +3,8 @@
 //
 // Las fotos de muestra están en public/modelos/ y son de Wikimedia Commons con licencia libre. Las CC BY-SA obligan a
 // citar al autor y la licencia, y por eso se ven debajo de la foto en la ficha.
+// Desde el 26/11 (Facu: «necesito que las imágenes sean con fondo blanco»), el vehículo va recortado sobre blanco
+// (scripts/fondo-blanco-modelos.py). La licencia pide decir que se ha cambiado: la ficha pone «fondo quitado».
 //
 // El modelo NO se apunta a mano: se saca de la marca, el bastidor, el peso y el tipo que ya tiene la ficha. Así sale
 // también en los que solo pone «IVECO» y en los que se den de alta mañana. Comprobado con los 24 de la flota el 26/11:
@@ -25,7 +27,8 @@ const M = (clave: string, nombre: string, autor: string, licencia: string, archi
   ({ clave, nombre, img: `/modelos/${clave}.jpg`, autor, licencia, pagina: `https://commons.wikimedia.org/wiki/File:${archivo}` });
 
 export const MODELOS = {
-  dailyFurgon: M('daily-furgon', 'Iveco Daily furgón', 'KGC626', 'CC BY-SA 4.0', 'Iveco_Daily_Mk6.jpg'),
+  // 26/11: otra foto (la de antes, de KGC626, estaba a contraluz y no se podía recortar: perdía la rueda de atrás)
+  dailyFurgon: M('daily-furgon', 'Iveco Daily furgón', 'Vauxford', 'CC BY-SA 4.0', '2014_Iveco_Daily_35_S13_MWB_2.3.jpg'),
   dailyCaja: M('daily-caja', 'Iveco Daily con caja', 'Bene Riobó', 'CC BY-SA 4.0', 'Iveco_Daily_Knold%27s_Seafood.jpg'),
   eurocargo: M('eurocargo', 'Iveco Eurocargo', 'Lukas 3z', 'CC BY-SA 4.0', 'Iveco_Eurocargo_180E28_izotermiczny.jpg'),
   isuzu: M('isuzu-n', 'Isuzu serie N', 'Spielvogel', 'CC0', 'Isuzu_N-Series._Refrigerated_box_rigid_truck._Spielvogel_2013.jpg'),
