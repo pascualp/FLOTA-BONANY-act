@@ -6,6 +6,7 @@ import { getAlertStatus, getVehicleAlerts, noAplica, papelesCaducados, parseEsDa
 import { tieneAcceso } from '../src/acceso.ts';
 import { leerImporte, gastoPorAnio, diaDe, refReparacion, ultimaDe } from '../src/reparaciones.ts';
 import { arregladaPor, queArregla } from '../src/incidencias.ts';
+import { copiaDe, fechaCopiaMal, textoCopia } from '../src/copiaCamion.ts';
 import { esFestivo, planificar, tareasPendientes } from '../src/planificador.ts';
 import type { Vehicle } from '../src/types.ts';
 
@@ -145,6 +146,22 @@ prueba('la misma factura por Telegram y por el importador da la misma clave', ()
   const limpio = (x: string) => String(x || '').toUpperCase().replace(/[^A-Z0-9/]/g, '');   // la del importador (.cjs)
   const importador = ['8031MHJ', '25/09/2026', '2026/002316'].map(limpio).join('|');
   assert.equal(bot, importador);
+});
+
+// ---------- Copia de los papeles en el camión ----------
+prueba('copia en el camión: fecha válida, que no sea futura, y el texto de cada caso', () => {
+  assert.equal(fechaCopiaMal('25/11/2026', '26/11/2026'), null);
+  assert.equal(fechaCopiaMal(' 26/11/2026 ', '26/11/2026'), null);              // hoy vale (con espacios)
+  assert.match(fechaCopiaMal('27/11/2026', '26/11/2026')!, /posterior/);        // mañana, no
+  assert.match(fechaCopiaMal('31/02/2026', '26/11/2026')!, /no existe/);
+  assert.match(fechaCopiaMal('25/11/26', '26/11/2026')!, /así/);                // año con 4 cifras
+  assert.match(fechaCopiaMal('ayer', '26/11/2026')!, /así/);
+  assert.equal(fechaCopiaMal('31/12/2025', '01/01/2026'), null);                // cambio de año
+  assert.equal(copiaDe(v({})), undefined);
+  assert.equal(copiaDe(v({ copiaCamion: { fecha: '', por: 'x' } })), undefined);
+  assert.equal(copiaDe(v({ copiaCamion: { fecha: '25/11/2026', por: 'x' } }))?.fecha, '25/11/2026');
+  assert.match(textoCopia(v({ copiaCamion: { fecha: '25/11/2026', por: 'x' } })), /desde el 25\/11\/2026/);
+  assert.match(textoCopia(v({})), /Todavía no/);
 });
 
 // ---------- Planificador de revisiones ----------

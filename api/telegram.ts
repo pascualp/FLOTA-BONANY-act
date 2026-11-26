@@ -11,6 +11,7 @@ import { CATEGORIAS, categoriaDe, esCategoria, estadoDocumentacion, MAX_BYTES, T
 import { diasOcupados, planificar, tareasPendientes, textoPlan } from '../src/planificador.js';
 import { diaDe, euros, gastoPorAnio, leerImporte, ordenar, refReparacion, textoReparacion, ultimaDe } from '../src/reparaciones.js';
 import { arregladaPor, conIncidencia, incidenciasDe, nuevaIncidencia, queArregla, sinIncidencia, textoIncidencia } from '../src/incidencias.js';
+import { copiaDe, fechaCopiaMal, textoCopia } from '../src/copiaCamion.js';
 import type { ClaveTramite, ClaveVencimiento, Reparacion, Vehicle } from '../src/types.js';
 
 // Agente «Flotas Bonany» en Telegram (/api/telegram, webhook del bot).
@@ -53,6 +54,7 @@ Qué puedes hacer con tus herramientas:
 - Seguro: cada vehículo tiene la fecha en que VENCE su póliza (vencimiento «seguro»). Si renuevan el seguro o mandan la póliza, propón la fecha nueva con proponer_nueva_fecha (vencimiento «seguro»), leída del papel.
 - Reparaciones: cada vehículo tiene su historial de reparaciones y mantenimiento (fecha, taller, qué se hizo, importe, km, nº de factura). Si mandan la foto o el PDF de una FACTURA DE TALLER (o cuentan una reparación), lee de ahí la matrícula, la fecha, el taller, qué se hizo, el importe TOTAL con IVA, los km y el nº de factura, y propón guardarla con proponer_reparacion (la factura se guarda también, enlazada). Si falta la matrícula o qué se hizo, pregunta. Para «¿qué se le ha hecho al…?», «¿cuánto llevamos gastado en…?» o «¿cuándo se cambió…?», usa ver_reparaciones. Contesta CORTO: cuándo y qué, una línea por reparación («El 31/10/2026 le cambiaron las pastillas y los discos (TMA Trailer).»); el importe, los km o el nº de factura solo si los preguntan.
 - Incidencias: cosas PENDIENTES de un vehículo (lo que avisa el taller en una factura, una avería, un ruido, un golpe). Si la factura avisa de algo pendiente, ponlo en «pendiente» de proponer_reparacion. Si cuentan una avería o algo por arreglar, proponer_incidencia. Si dicen que ya se arregló, proponer_resolver_incidencia. proponer_reparacion ya mira solo si el aviso lo arregló una reparación POSTERIOR (entonces no se apunta) y si la reparación arregla alguna incidencia pendiente (se resuelve con el mismo ✅): no propongas aparte ni esa incidencia ni su resolución. «¿Qué incidencias hay?» → ver_incidencias.
+- Copia de los papeles en el camión: en cada vehículo va una COPIA de los papeles y los originales se quedan en la oficina. Cada vehículo dice en ver_flota si ya lleva la copia y desde cuándo. Si dicen que ya le pusieron la copia a un vehículo (o una copia nueva), proponer_copia_camion con la fecha (si no la dicen, hoy); si se marcó por error, proponer_copia_camion con quitar. «¿Cuáles no llevan copia?» → ver_flota y di cuáles.
 - Anular una cita: proponer_quitar_cita. Cambiar un dato (chófer, aseguradora, póliza…): proponer_cambio. Dar de alta un vehículo: proponer_alta_vehiculo.
 - Guardar la foto o el PDF que viene en el mensaje en los documentos de un vehículo: proponer_guardar_archivo, diciendo SIEMPRE de qué tipo es (categoria): Permiso de circulación, Ficha técnica (también la «tarjeta ITV»), Póliza, ITV (informe de inspección), ATP, Tacógrafo, Carga y descarga, Tarjeta de transporte u Otro.
 
@@ -87,6 +89,7 @@ const HERRAMIENTAS: Anthropic.Beta.Messages.BetaToolUnion[] = [
   { name: 'ver_incidencias', description: 'Incidencias PENDIENTES de la flota (o de un vehículo): avisos del taller, averías, cosas por arreglar. Cada una con su id.', input_schema: { type: 'object', properties: { matricula: { ...matricula, description: 'Opcional: solo este vehículo' } } } },
   { name: 'proponer_incidencia', description: 'Propone apuntar una incidencia pendiente en un vehículo (avería, ruido, golpe, algo por arreglar). Botón ✅ para confirmar.', input_schema: { type: 'object', properties: { matricula, texto: { type: 'string', description: 'Qué pasa, corto y claro' }, fecha: { ...fecha, description: 'Cuándo se vio (dd/mm/aaaa); si no lo dicen, hoy' } }, required: ['matricula', 'texto'] } },
   { name: 'proponer_resolver_incidencia', description: 'Propone dar por RESUELTA una incidencia pendiente (ya se arregló). Botón ✅ para confirmar.', input_schema: { type: 'object', properties: { matricula, id: { type: 'string', description: 'id de la incidencia (de ver_incidencias); si el vehículo solo tiene una, no hace falta' }, como: { type: 'string', description: 'Cómo se arregló, si lo dicen' } }, required: ['matricula'] } },
+  { name: 'proponer_copia_camion', description: 'Propone apuntar que el vehículo ya lleva en el camión la COPIA de sus papeles (los originales se quedan en la oficina), o quitar esa marca si se puso por error. Botón ✅ para confirmar.', input_schema: { type: 'object', properties: { matricula, fecha: { ...fecha, description: 'Día en que se puso la copia (dd/mm/aaaa); si no lo dicen, hoy' }, quitar: { type: 'boolean', description: 'true = quitar la marca (se puso por error)' } }, required: ['matricula'] } },
   { name: 'planificar_revisiones', description: 'Propuesta de calendario para llevar los vehículos a ITV / ATP / tacógrafo: lo vencido o que vence en 45 días y sin cita, un vehículo al día, lunes a viernes por la tarde, sin festivos y sin pisar días que ya tienen cita.', input_schema: { type: 'object', properties: {} } },
 ];
 
@@ -155,7 +158,7 @@ async function ejecutar(ctx: Ctx, nombre: string, e: any): Promise<string> {
           const alertas = getVehicleAlerts(v).map((a) =>
             `   - ${a.label}: ${a.date} → ${a.text}${a.cita ? ' · ' + textoCita(a.cita) : ''}`);
           const incs = incidenciasDe(v).map((i) => `   - 🛠 INCIDENCIA pendiente: ${textoIncidencia(i)}`);
-          return `${v.matricula} · ${v.marca || ''} ${v.tipo || ''}${v.chofer ? ' · chófer ' + v.chofer : ''}\n${[...alertas, ...incs].join('\n') || '   (sin fechas)'}`;
+          return `${v.matricula} · ${v.marca || ''} ${v.tipo || ''}${v.chofer ? ' · chófer ' + v.chofer : ''}\n${[...alertas, ...incs].join('\n') || '   (sin fechas)'}\n   - ${textoCopia(v)}`;
         })
         .join('\n');
     }
@@ -180,6 +183,21 @@ async function ejecutar(ctx: Ctx, nombre: string, e: any): Promise<string> {
       if (!i) throw new Error(incs.length ? `${v.matricula} tiene ${incs.length} incidencias: di cuál (usa ver_incidencias para ver su id)` : `${v.matricula} no tiene incidencias pendientes`);
       return proponer(ctx, 'resolver_incidencia', { vehicleId: v.id, matricula: v.matricula, id: i.id, texto: i.texto, como: textoLimpio(e.como) },
         `${v.matricula}: dar por resuelta la incidencia «${i.texto}»${e.como ? ' (' + textoLimpio(e.como) + ')' : ''}`);
+    }
+    case 'proponer_copia_camion': {
+      const v = await vehiculoDe(ctx, e.matricula);
+      const antes = copiaDe(v);
+      if (e.quitar) {
+        if (!antes) throw new Error(`${v.matricula} no tiene apuntada la copia en el camión: no hay nada que quitar`);
+        return proponer(ctx, 'copia_camion', { vehicleId: v.id, matricula: v.matricula, quitar: true },
+          `${v.matricula}: quitar la marca de copia de los papeles en el camión (estaba desde el ${antes.fecha})`);
+      }
+      const fecha = typeof e.fecha === 'string' && e.fecha.trim() ? e.fecha.trim() : hoyTexto();
+      const mal = fechaCopiaMal(fecha, hoyTexto());
+      if (mal) throw new Error(mal);
+      return proponer(ctx, 'copia_camion', { vehicleId: v.id, matricula: v.matricula, fecha, antes: antes?.fecha || null },
+        antes ? `${v.matricula}: copia NUEVA de los papeles en el camión (${antes.fecha} → ${fecha})`
+          : `${v.matricula}: ya lleva la copia de los papeles en el camión, desde el ${fecha}`);
     }
     case 'ver_vehiculo': {
       const v = await vehiculoDe(ctx, e.matricula);
@@ -444,6 +462,14 @@ async function aplicar(p: any, quien: string) {
         incidencias: conIncidencia(actual!.data() as Vehicle, nuevaIncidencia(d.texto, d.fecha, `Telegram · ${quien}`)),
         historial: historial(`Incidencia: ${d.texto}`),
       });
+      return;
+    case 'copia_camion':
+      await veh!.update(d.quitar
+        ? { copiaCamion: FieldValue.delete(), historial: historial('Quitada la marca de copia de los papeles en el camión') }
+        : {
+          copiaCamion: { fecha: d.fecha, por: `Telegram · ${quien}` },
+          historial: historial(d.antes ? `Copia nueva de los papeles en el camión: ${d.antes} → ${d.fecha}` : `Copia de los papeles puesta en el camión (${d.fecha})`),
+        });
       return;
     case 'resolver_incidencia': {
       const v = actual!.data() as Vehicle;

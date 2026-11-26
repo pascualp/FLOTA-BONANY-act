@@ -27,6 +27,9 @@ export interface Vehicle {
   // incidencias»). Al resolverse se quitan de aquí (y queda en el historial). Van en la ficha del vehículo para que la
   // web, el reporte y el bot las vean sin leer nada más.
   incidencias?: Incidencia[];
+  // En el camión va una COPIA de los papeles; los originales se quedan en la oficina (26/11/2026). Sin este campo, el
+  // vehículo todavía no lleva la copia. Ver src/copiaCamion.ts.
+  copiaCamion?: CopiaCamion;
   createdAt?: Timestamp;
   // Citas ya sacadas y pendientes de llevar el vehículo (las pone el agente de Telegram al pulsar ✅)
   citas?: Partial<Record<ClaveTramite, Cita>>;
@@ -67,6 +70,11 @@ export interface Incidencia {
   fecha: string;     // dd/mm/aaaa: cuándo se detectó
   origen: string;    // «Neuretec (Euromaster), factura 7733» · «Telegram · Facu» · «Web · …»
   repId?: string;    // la reparación (factura) de la que sale, si sale de una
+}
+
+export interface CopiaCamion {
+  fecha: string;   // dd/mm/aaaa: desde cuándo lleva la copia
+  por: string;     // quién lo apuntó («Web · correo», «Telegram · nombre»)
 }
 
 export interface Cambio {

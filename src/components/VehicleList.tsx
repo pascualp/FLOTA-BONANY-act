@@ -1,7 +1,8 @@
 import { useState, type ReactNode } from 'react';
-import { Car, FileSearch, ArchiveX, CheckCircle2, FileWarning } from 'lucide-react';
+import { Car, FileSearch, ArchiveX, CheckCircle2, FileWarning, Copy } from 'lucide-react';
 import { Vehicle, VehicleDocument } from '../types';
 import { estadoDocumentacion } from '../documentos';
+import { copiaDe } from '../copiaCamion';
 import { fechaEnPantalla, fraseVencimiento, getVehicleAlerts, NOMBRE_CORTO, papelesCaducados, problemasDe, VENCIMIENTOS } from '../utils';
 import { incidenciasDe } from '../incidencias';
 
@@ -28,13 +29,27 @@ const COLOR_FECHA: Record<string, string> = {
   danger: 'text-red-600 font-bold', warning: 'text-amber-600 font-bold', unknown: 'text-slate-400 italic', success: 'font-medium',
 };
 
+// Filtro de la lista: todos, solo a los que faltan papeles por subir o solo los que no llevan la copia en el camión.
+type Filtro = 'todos' | 'faltanPapeles' | 'sinCopia';
+
 export const VehicleList = ({ vehicles, fuera, docsPorVehiculo, searchQuery, setSearchQuery, setSelectedVehicle }: VehicleListProps) => {
-  const [soloIncompletos, setSoloIncompletos] = useState(false);
+  const [filtro, setFiltro] = useState<Filtro>('todos');
   const term = searchQuery.trim().toLowerCase();
   const estado = (v: Vehicle) => estadoDocumentacion(v, docsPorVehiculo[v.id || ''] || []);
   const incompletos = vehicles.filter(v => estado(v).faltan.length > 0).length;
-  const activos = vehicles.filter(v => coincide(v, term) && (!soloIncompletos || estado(v).faltan.length > 0));
+  const conCopia = vehicles.filter(v => copiaDe(v)).length;
+  const pasaFiltro = (v: Vehicle) =>
+    filtro === 'faltanPapeles' ? estado(v).faltan.length > 0 : filtro === 'sinCopia' ? !copiaDe(v) : true;
+  const activos = vehicles.filter(v => coincide(v, term) && pasaFiltro(v));
   const deFuera = fuera.filter(v => coincide(v, term));
+  const botonFiltro = (f: Filtro, texto: string, activo: string) => (
+    <button
+      onClick={() => setFiltro(filtro === f ? 'todos' : f)}
+      className={`px-4 py-2 rounded-full text-xs font-bold border transition-colors ${filtro === f ? activo : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'}`}
+    >
+      {filtro === f ? `${texto} · ver todos` : texto}
+    </button>
+  );
 
   return (
     <div className="flex-1 min-w-0 bg-white rounded-3xl border border-slate-200 overflow-hidden flex flex-col">
@@ -44,14 +59,14 @@ export const VehicleList = ({ vehicles, fuera, docsPorVehiculo, searchQuery, set
           <p className="text-xs text-slate-500">
             {incompletos === 0 ? 'Todos tienen sus papeles subidos.' : `A ${incompletos} ${incompletos === 1 ? 'le faltan' : 'les faltan'} papeles por subir. Toca uno para ver su ficha.`}
           </p>
+          <p className="text-xs text-slate-500">
+            {conCopia === vehicles.length ? 'Todos llevan la copia de los papeles en el camión.'
+              : `Llevan copia de los papeles en el camión: ${conCopia} de ${vehicles.length}.`}
+          </p>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
-          <button
-            onClick={() => setSoloIncompletos(!soloIncompletos)}
-            className={`px-4 py-2 rounded-full text-xs font-bold border transition-colors ${soloIncompletos ? 'bg-red-50 text-red-600 border-red-200' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'}`}
-          >
-            {soloIncompletos ? 'Viendo solo a los que faltan papeles · ver todos' : 'Ver solo a los que faltan papeles'}
-          </button>
+          {botonFiltro('faltanPapeles', filtro === 'faltanPapeles' ? 'Viendo solo a los que faltan papeles' : 'Ver solo a los que faltan papeles', 'bg-red-50 text-red-600 border-red-200')}
+          {botonFiltro('sinCopia', filtro === 'sinCopia' ? 'Viendo solo los que no llevan copia' : 'Ver solo los que no llevan copia', 'bg-blue-50 text-blue-700 border-blue-200')}
           <div className="relative w-full max-w-sm">
             <input
               type="text"
@@ -68,7 +83,9 @@ export const VehicleList = ({ vehicles, fuera, docsPorVehiculo, searchQuery, set
         {activos.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-slate-500">
             <Car className="w-12 h-12 mb-4 opacity-50" />
-            <p>No se encontraron vehículos que coincidan con la búsqueda.</p>
+            <p>{term ? 'No se encontraron vehículos que coincidan con la búsqueda.'
+              : filtro === 'sinCopia' ? 'Todos llevan ya la copia de los papeles en el camión.'
+              : filtro === 'faltanPapeles' ? 'A ninguno le faltan papeles.' : 'No hay vehículos en la flota.'}</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -122,6 +139,11 @@ export const VehicleList = ({ vehicles, fuera, docsPorVehiculo, searchQuery, set
                         <p className="flex items-start gap-1 text-red-600"><FileWarning className="w-3.5 h-3.5 shrink-0 mt-px" /><span><b>Faltan papeles:</b> {e.faltan.join(', ')}</span></p>
                       )}
                       {vencidos.length > 0 && <p className="text-[11px] text-amber-700 mt-1">⚠ Hay que subir el papel nuevo de: {vencidos.join(', ')} (el guardado ya caducó)</p>}
+                      {copiaDe(v) ? (
+                        <p className="flex items-center gap-1 text-emerald-700 mt-1"><Copy className="w-3.5 h-3.5" /> Copia en el camión desde el {copiaDe(v)!.fecha}</p>
+                      ) : (
+                        <p className="flex items-center gap-1 text-slate-400 mt-1"><Copy className="w-3.5 h-3.5" /> Todavía sin copia en el camión</p>
+                      )}
                     </div>
                   </div>
                 </div>

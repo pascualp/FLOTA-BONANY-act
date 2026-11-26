@@ -6,6 +6,7 @@ import type { Vehicle, VehicleDocument } from '../types';
 import { AVISO_CUOTA, CATEGORIAS, type Categoria, categoriaDe, esCuotaAgotada, estadoDocumentacion, MAX_BYTES, TIPOS_ARCHIVO } from '../documentos';
 import { papelesCaducados } from '../utils';
 import { abrirDocumento, borrarDocumento, subirDocumento, tipoDe } from '../lib/documentosApi';
+import { CopiaCamionVehiculo } from './CopiaCamionVehiculo';
 
 // Documentación de un vehículo: qué papeles se le piden (✔ lo tiene y está en vigor, ⚠ lo tiene pero la fecha ya pasó,
 // ✗ no lo tiene), subir (al almacén de archivos, nunca a la base), abrir, cambiar el tipo y borrar.
@@ -139,6 +140,8 @@ export const DocumentosVehiculo = ({ vehiculo, documentos }: { vehiculo: Vehicle
           })}
         </ul>
       </div>
+
+      <CopiaCamionVehiculo vehiculo={vehiculo} />
 
       {progreso && (
         <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-2xl flex items-center gap-2 text-xs text-blue-800 font-semibold">
