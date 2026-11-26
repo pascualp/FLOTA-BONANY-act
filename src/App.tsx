@@ -9,6 +9,7 @@ import { problemasDe } from './utils';
 import { incidenciasDe } from './incidencias';
 import { AVISO_CUOTA, esCuotaAgotada } from './documentos';
 import { AVISO_SIN_ACCESO, tieneAcceso } from './acceso';
+import { pedirUrlsFotos } from './lib/documentosApi';
 
 // Components
 import { AlertsList } from './components/AlertsList';
@@ -31,6 +32,9 @@ export default function App() {
   // Fichas de los documentos de cada vehículo (id del vehículo → documentos, los más nuevos primero). Es la ÚNICA
   // lectura de `documents` de la app: de aquí salen la lista de la ficha y el control de qué papeles faltan.
   const [docsPorVehiculo, setDocsPorVehiculo] = useState<Record<string, VehicleDocument[]>>({});
+  // Fotos REALES de los vehículos: id → enlace del almacén (o la vista previa recién hecha). Sin foto real sale la de
+  // muestra de su modelo (src/modelos.ts).
+  const [fotos, setFotos] = useState<Record<string, string>>({});
   // La base de Firestore agotó su cuota diaria (vuelve a las 9:00): se avisa arriba sin echar a nadie de la app.
   const [cuotaAgotada, setCuotaAgotada] = useState(false);
   // Lo que se ve viene de la copia guardada en el navegador (todavía no ha contestado la base, o no hay conexión).
@@ -179,6 +183,24 @@ export default function App() {
     });
   }, [user]);
 
+  // Enlaces de las fotos reales: UNA llamada para todas, solo si algún vehículo tiene foto, y otra vez cuando alguien pone,
+  // cambia o quita una (cambia `foto.v` en la ficha y llega por la base a todas las pantallas). Los enlaces valen 12 h:
+  // se renuevan cada 6 h por si la pestaña se queda abierta.
+  const firmaFotos = todos.filter(v => v.id && v.foto).map(v => `${v.id}:${v.foto!.v}`).join('|');
+  useEffect(() => {
+    if (!user || DEMO) return;
+    if (!firmaFotos) { setFotos({}); return; }
+    let vivo = true;
+    const pedir = () => pedirUrlsFotos()
+      .then((urls) => { if (vivo) setFotos(urls); })
+      .catch((e) => console.warn('[fotos] no se pudieron pedir los enlaces:', e));   // sin enlaces sale la de muestra
+    pedir();
+    const cada6h = setInterval(pedir, 6 * 3600e3);
+    return () => { vivo = false; clearInterval(cada6h); };
+  }, [user, firmaFotos]);
+  const fotoLocal = (vehicleId: string, url: string | null) =>
+    setFotos((antes) => { const f = { ...antes }; if (url) f[vehicleId] = url; else delete f[vehicleId]; return f; });
+
   // Solo la flota que SÍ tenemos cuenta para las alertas; la de fuera sale aparte en «Vehículos».
   const vehicles = todos.filter(v => !v.baja);
   const fuera = todos.filter(v => v.baja);
@@ -292,7 +314,7 @@ export default function App() {
         </div>
 
         {activeTab === 'alerts' && (
-          <AlertsList vehicles={vehicles} setSelectedVehicle={setSelectedVehicle} setIsEditing={setIsEditing} />
+          <AlertsList vehicles={vehicles} fotos={fotos} setSelectedVehicle={setSelectedVehicle} setIsEditing={setIsEditing} />
         )}
 
         {activeTab === 'vehicles' && (
@@ -300,6 +322,7 @@ export default function App() {
             vehicles={vehicles}
             fuera={fuera}
             docsPorVehiculo={docsPorVehiculo}
+            fotos={fotos}
             searchQuery={searchQuery}
             setSearchQuery={setSearchQuery}
             setSelectedVehicle={setSelectedVehicle}
@@ -350,6 +373,9 @@ export default function App() {
           isEditing={isEditing}
           setIsEditing={setIsEditing}
           vehicleDocuments={vehicleDocuments}
+          fotoUrl={currentVehicle.id ? fotos[currentVehicle.id] : undefined}
+          onFotoLocal={fotoLocal}
+          demo={DEMO}
         />
       )}
     </div>

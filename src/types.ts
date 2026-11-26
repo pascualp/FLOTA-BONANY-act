@@ -30,6 +30,9 @@ export interface Vehicle {
   // En el camión va una COPIA de los papeles; los originales se quedan en la oficina (26/11/2026). Sin este campo, el
   // vehículo todavía no lleva la copia. Ver src/copiaCamion.ts.
   copiaCamion?: CopiaCamion;
+  // Foto REAL del vehículo (26/11/2026), en el almacén de archivos: fotos/<id>.jpg. Sin este campo sale la foto de
+  // muestra de su modelo (src/modelos.ts). `v` cambia con cada foto nueva para que todas las pantallas la vuelvan a pedir.
+  foto?: { fecha: string; por: string; v: number };
   createdAt?: Timestamp;
   // Citas ya sacadas y pendientes de llevar el vehículo (las pone el agente de Telegram al pulsar ✅)
   citas?: Partial<Record<ClaveTramite, Cita>>;

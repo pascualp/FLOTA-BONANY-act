@@ -3,6 +3,7 @@ import { CheckCircle2, ChevronRight, Search } from 'lucide-react';
 import type { Vehicle } from '../types';
 import { fechaEnPantalla, fraseVencimiento, getVehicleAlerts, NOMBRE_CORTO, parseEsDate, type AlertaVehiculo } from '../utils';
 import { incidenciasDe } from '../incidencias';
+import { ImagenVehiculo } from './FotoVehiculo';
 
 // «Qué hay que hacer» (rehecha el 26/11/2026, Facu: «mejora la interfaz para que no confunda a una persona que lo ve
 // por primera vez»). Antes: una tabla con todas las filas en rosa, «EN REGLA» mezclado con lo vencido, fechas escritas
@@ -37,11 +38,12 @@ const cosasDe = (v: Vehicle): Cosa[] => [
 
 interface AlertsListProps {
   vehicles: Vehicle[];
+  fotos: Record<string, string>;   // id del vehículo → enlace de su foto real (si tiene)
   setSelectedVehicle: (vehicle: Vehicle) => void;
   setIsEditing: (isEditing: boolean) => void;
 }
 
-export const AlertsList = ({ vehicles, setSelectedVehicle, setIsEditing }: AlertsListProps) => {
+export const AlertsList = ({ vehicles, fotos, setSelectedVehicle, setIsEditing }: AlertsListProps) => {
   const [buscar, setBuscar] = useState('');
   const [filtro, setFiltro] = useState<Tipo | null>(null);
 
@@ -108,6 +110,7 @@ export const AlertsList = ({ vehicles, setSelectedVehicle, setIsEditing }: Alert
             {visibles.map(({ v, cosas }) => (
               <li key={v.id} role="button" tabIndex={0} onClick={() => abrir(v)} onKeyDown={(e) => e.key === 'Enter' && abrir(v)}
                 className={`flex items-center gap-3 px-4 md:px-5 py-4 border-l-4 cursor-pointer hover:bg-slate-50 focus:bg-slate-50 outline-none ${tipo(cosas[0].tipo).borde}`}>
+                <ImagenVehiculo v={v} url={v.id ? fotos[v.id] : undefined} className="self-start w-16 h-12 rounded-lg shrink-0 border border-slate-100" />
                 <div className="min-w-0 flex-1">
                   <p className="font-bold text-slate-900">
                     {v.matricula}

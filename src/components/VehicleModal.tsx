@@ -5,9 +5,10 @@ import { deleteDoc, deleteField, doc as firestoreDoc } from 'firebase/firestore'
 import { Vehicle, VehicleDocument } from '../types';
 import { fechaEnPantalla, fraseVencimiento, getVehicleAlerts, NOMBRE_CORTO, VENCIMIENTOS } from '../utils';
 import { AVISO_CUOTA, esCuotaAgotada } from '../documentos';
-import { borrarDocumento } from '../lib/documentosApi';
+import { borrarDocumento, borrarFoto } from '../lib/documentosApi';
 import { guardarCambios } from '../lib/guardarVehiculo';
 import { FichaFormulario } from './FichaFormulario';
+import { FotoFicha } from './FotoVehiculo';
 import { CitasVehiculo } from './CitasVehiculo';
 import { DocumentosVehiculo } from './DocumentosVehiculo';
 import { ReparacionesVehiculo } from './ReparacionesVehiculo';
@@ -19,6 +20,9 @@ interface VehicleModalProps {
   isEditing: boolean;
   setIsEditing: (isEditing: boolean) => void;
   vehicleDocuments: VehicleDocument[];
+  fotoUrl?: string;                                                // enlace de su foto real, si tiene
+  onFotoLocal: (vehicleId: string, url: string | null) => void;
+  demo?: boolean;
 }
 
 // Fondo y punto de cada vencimiento según cómo está (rojo caducado, ámbar caduca pronto, gris falta la fecha, verde en
@@ -33,7 +37,7 @@ const avisarError = (que: string, error: any) => alert(esCuotaAgotada(error) ? A
 const hoyTexto = () => new Date().toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' });
 
 // Ficha de un vehículo: vencimientos, datos, citas, documentos e historial de cambios. En el móvil ocupa la pantalla.
-export const VehicleModal = ({ selectedVehicle: v, setSelectedVehicle, isEditing, setIsEditing, vehicleDocuments }: VehicleModalProps) => {
+export const VehicleModal = ({ selectedVehicle: v, setSelectedVehicle, isEditing, setIsEditing, vehicleDocuments, fotoUrl, onFotoLocal, demo }: VehicleModalProps) => {
   const [verTodoHistorial, setVerTodoHistorial] = useState(false);
   const [ocupado, setOcupado] = useState(false);
   const cerrar = () => { setSelectedVehicle(null); setIsEditing(false); };
@@ -68,6 +72,7 @@ export const VehicleModal = ({ selectedVehicle: v, setSelectedVehicle, isEditing
     try {
       // Primero sus documentos (archivo y ficha, por el servidor): antes se quedaban huérfanos en la base y el almacén.
       for (const d of vehicleDocuments) await borrarDocumento(d.id);
+      if (v.foto) await borrarFoto(v.id);
       await deleteDoc(firestoreDoc(db, 'vehicles', v.id));
       cerrar();
     } catch (err) {
@@ -89,6 +94,8 @@ export const VehicleModal = ({ selectedVehicle: v, setSelectedVehicle, isEditing
           </div>
           <button onClick={cerrar} className="p-2 hover:bg-slate-100 rounded-full shrink-0" title="Cerrar"><X className="w-5 h-5 text-slate-500" /></button>
         </div>
+
+        {!isEditing && <FotoFicha v={v} url={fotoUrl} demo={demo} onFotoLocal={onFotoLocal} />}
 
         <div className="flex flex-wrap gap-2 mb-6">
           <button onClick={() => setIsEditing(!isEditing)}

@@ -5,11 +5,13 @@ import { estadoDocumentacion } from '../documentos';
 import { copiaDe } from '../copiaCamion';
 import { fechaEnPantalla, fraseVencimiento, getVehicleAlerts, NOMBRE_CORTO, papelesCaducados, problemasDe, VENCIMIENTOS, type AlertaVehiculo } from '../utils';
 import { incidenciasDe } from '../incidencias';
+import { ImagenVehiculo } from './FotoVehiculo';
 
 interface VehicleListProps {
   vehicles: Vehicle[];                                // la flota que SÍ tenemos
   fuera: Vehicle[];                                   // fuera de la flota (campo «baja»: no está en el GPS, vendido…)
   docsPorVehiculo: Record<string, VehicleDocument[]>; // id del vehículo → sus documentos
+  fotos: Record<string, string>;                      // id del vehículo → enlace de su foto real (si tiene)
   searchQuery: string;
   setSearchQuery: (query: string) => void;
   setSelectedVehicle: (vehicle: Vehicle) => void;
@@ -46,7 +48,7 @@ const textoCasilla = (f?: AlertaVehiculo) =>
 
 type Filtro = 'todos' | 'faltanPapeles' | 'sinCopia';
 
-export const VehicleList = ({ vehicles, fuera, docsPorVehiculo, searchQuery, setSearchQuery, setSelectedVehicle }: VehicleListProps) => {
+export const VehicleList = ({ vehicles, fuera, docsPorVehiculo, fotos, searchQuery, setSearchQuery, setSelectedVehicle }: VehicleListProps) => {
   const [filtro, setFiltro] = useState<Filtro>('todos');
   const term = searchQuery.trim().toLowerCase();
   const estado = (v: Vehicle) => estadoDocumentacion(v, docsPorVehiculo[v.id || ''] || []);
@@ -114,14 +116,16 @@ export const VehicleList = ({ vehicles, fuera, docsPorVehiculo, searchQuery, set
                   onClick={() => setSelectedVehicle(v)}
                   className="border border-slate-200 rounded-2xl hover:shadow-md hover:border-blue-300 transition-all cursor-pointer bg-white overflow-hidden flex flex-col"
                 >
-                  {/* 1. Qué vehículo es y lo que hay que mirar (lo que está en regla no cuenta como alerta). */}
+                  {/* 1. Qué vehículo es (con su foto: la real o la de muestra del modelo) y lo que hay que mirar
+                      (lo que está en regla no cuenta como alerta). */}
                   <div className="px-4 pt-4 pb-3">
-                    <div className="flex justify-between items-start gap-2">
+                    <div className="flex items-center gap-3">
+                      <ImagenVehiculo v={v} url={v.id ? fotos[v.id] : undefined} className="w-20 h-14 rounded-xl shrink-0 border border-slate-100" />
                       <div className="min-w-0">
                         <h5 className="text-lg font-bold text-slate-900 leading-tight">{v.matricula}</h5>
-                        <p className="text-xs text-slate-500 truncate">{[v.marca, v.tipo].filter(Boolean).join(' · ')}{v.chofer ? ` · ${v.chofer}` : ''}</p>
+                        <p className="text-xs text-slate-500 truncate">{[v.marca, v.tipo].filter(Boolean).join(' · ')}</p>
+                        {v.chofer && <p className="text-xs text-slate-500 truncate">{v.chofer}</p>}
                       </div>
-                      <Car className="w-5 h-5 text-blue-400 shrink-0" />
                     </div>
                     <div className="flex flex-wrap gap-1.5 mt-3">
                       {p.vencidos > 0 && <Insignia clase="bg-red-100 text-red-700">{p.vencidos} {p.vencidos === 1 ? 'caducado' : 'caducados'}</Insignia>}

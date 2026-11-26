@@ -63,5 +63,25 @@ export async function borrar(ruta: string): Promise<void> {
 
 export const huella = (datos: Buffer) => crypto.createHash('sha256').update(datos).digest('hex');
 
+// Foto REAL de cada vehículo (26/11/2026): una por vehículo, en fotos/<id del vehículo>.jpg. El navegador la reduce
+// antes de subirla (lado mayor 800 px, JPEG), así que pesa ~100 KB; el tope es de sobra.
+export const FOTO_MAX_BYTES = 2 * 1024 * 1024;
+export const esIdVehiculo = (id: unknown): id is string => typeof id === 'string' && /^[A-Za-z0-9_-]{1,60}$/.test(id);
+export const rutaFoto = (vehicleId: string) => `fotos/${vehicleId}.jpg`;
+
+// Enlaces de lectura de TODAS las fotos en una sola llamada (id del vehículo → enlace), válidos 12 horas. La web los
+// pide una vez al cargar: así no lee nada de más de la base, que tiene un tope gratis diario muy justo.
+export async function urlsFotos(): Promise<Record<string, string>> {
+  const [archivos] = await bucket().getFiles({ prefix: 'fotos/' });
+  const urls: Record<string, string> = {};
+  await Promise.all(archivos.map(async (f) => {
+    const id = f.name.slice('fotos/'.length).replace(/\.jpg$/, '');
+    if (!esIdVehiculo(id)) return;
+    const [url] = await f.getSignedUrl({ version: 'v4', action: 'read', expires: Date.now() + 12 * 3600e3 });
+    urls[id] = url;
+  }));
+  return urls;
+}
+
 // Aviso claro si la base de Firestore agota su cuota diaria (definido junto a la web, para que digan lo mismo).
 export { AVISO_CUOTA, esCuotaAgotada } from '../../src/documentos.js';

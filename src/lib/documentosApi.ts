@@ -28,7 +28,7 @@ export function tipoDe(file: File): string {
 }
 
 // PUT al enlace firmado, con progreso (fetch no da progreso de subida; XMLHttpRequest sí).
-function subirConProgreso(url: string, file: File, tipo: string, alProgreso?: (pct: number) => void): Promise<void> {
+function subirConProgreso(url: string, file: Blob, tipo: string, alProgreso?: (pct: number) => void): Promise<void> {
   return new Promise((ok, mal) => {
     const xhr = new XMLHttpRequest();
     xhr.open('PUT', url);
@@ -58,3 +58,33 @@ export async function abrirDocumento(docId: string, ventana: Window | null): Pro
 }
 
 export const borrarDocumento = (docId: string) => llamar({ accion: 'borrar', docId });
+
+// ---------- Foto real del vehículo (26/11/2026) ----------
+// La foto del móvil pesa 3-5 MB y aquí se ve en pequeño: se reduce en el propio navegador a JPEG de 800 px de lado
+// mayor (~100 KB). createImageBitmap con «from-image» respeta el giro que guarda el móvil (si no, salen tumbadas).
+export async function reducirFoto(file: File, lado = 800): Promise<Blob> {
+  let bmp: ImageBitmap;
+  try {
+    bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
+  } catch {
+    throw new Error('No se puede leer esa imagen. Si es de un iPhone (HEIC), hazla con la cámara desde la propia app.');
+  }
+  const k = Math.min(1, lado / Math.max(bmp.width, bmp.height));
+  const lienzo = document.createElement('canvas');
+  lienzo.width = Math.round(bmp.width * k);
+  lienzo.height = Math.round(bmp.height * k);
+  lienzo.getContext('2d')!.drawImage(bmp, 0, 0, lienzo.width, lienzo.height);
+  bmp.close();
+  return new Promise((ok, mal) => lienzo.toBlob((b) => (b ? ok(b) : mal(new Error('No se pudo preparar la foto'))), 'image/jpeg', 0.82));
+}
+
+// Sube la foto ya reducida a fotos/<id>.jpg (sustituye la que hubiera).
+export async function subirFoto(vehicleId: string, foto: Blob, alProgreso?: (pct: number) => void) {
+  const { url } = await llamar({ accion: 'fotoSubir', vehicleId, size: foto.size });
+  await subirConProgreso(url, foto, 'image/jpeg', alProgreso);
+  await llamar({ accion: 'fotoLista', vehicleId });
+}
+
+// Enlaces de todas las fotos reales de una vez: id del vehículo → enlace (vale 12 horas).
+export const pedirUrlsFotos = async (): Promise<Record<string, string>> => (await llamar({ accion: 'fotos' })).urls || {};
+export const borrarFoto = (vehicleId: string) => llamar({ accion: 'fotoBorrar', vehicleId });

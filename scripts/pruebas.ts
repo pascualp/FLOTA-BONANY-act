@@ -8,6 +8,8 @@ import { leerImporte, gastoPorAnio, diaDe, refReparacion, ultimaDe } from '../sr
 import { arregladaPor, queArregla } from '../src/incidencias.ts';
 import { copiaDe, fechaCopiaMal, textoCopia } from '../src/copiaCamion.ts';
 import { esFestivo, planificar, tareasPendientes } from '../src/planificador.ts';
+import { kilos, modeloDe, MODELOS } from '../src/modelos.ts';
+import { existsSync } from 'node:fs';
 import type { Vehicle } from '../src/types.ts';
 
 let n = 0;
@@ -178,6 +180,42 @@ prueba('festivos y un vehículo al día, de lunes a viernes', () => {
   }
   assert.notEqual(plan[0].fecha, plan[1].fecha);
   assert.equal(plan[0].matricula, 'A');   // primero lo vencido
+});
+
+// ---------- Foto de muestra del modelo (datos reales de la flota el 26/11/2026) ----------
+prueba('cada vehículo de la flota sale con su modelo', () => {
+  const flota: [string, string, string, string, string, string][] = [
+    // matrícula, marca, tipo, capacidad, bastidor, modelo esperado
+    ['0313HBK', 'IVECO DAILY 35S13', 'FURGONETA', '3.500 Kg', 'ZCF359300D437874', 'daily-furgon'],
+    ['1886HTY', 'IVECO DAILY 35S13', 'FURGONETA', '1940 Kg', 'ZCFC359200D456920', 'daily-furgon'],
+    ['8031MHJ', 'IVECO', 'FURGONETA', '3.500 Kg', 'ZCFCE35B10D737011', 'daily-furgon'],
+    ['2218KKT', 'IVECO', 'CAMION', '3.500 Kg', 'ZCFCD35A60D602794', 'daily-caja'],
+    ['5254JWZ', 'IVECO', 'CAMION', '7.200 Kg', 'ZCFC170D90D577696', 'daily-caja'],
+    ['5849HDH', 'IVECO DAILY 70C18', 'CAMION', '6.500 Kg', 'ZCFC70D000D442255', 'daily-caja'],
+    ['9785MSD', 'IVECO', 'CAMION', '3.500 Kg', 'ZCFCE35B30D756448', 'daily-caja'],   // caja frigo de Liderkit
+    ['1415LVM', 'IVECO', 'CAMION', '12.000 Kg', 'ZCFA71ADX02667890', 'eurocargo'],
+    ['8855JCY', 'IVECO', 'CAMION', '12.000 Kg', 'ZFFAF1EF702633775', 'eurocargo'],   // bastidor mal escrito en la app: sale por el peso
+    ['3956FDZ', 'ISUZU NPR', 'CAMION', '6.200 Kg', 'JAANPR70P47102029', 'isuzu-n'],
+    ['5875NDS', 'ISUZU', 'S/D', '', '', 'isuzu-n'],
+    ['1768JYC', 'RENAULT MAXITY', 'CAMION', '3.500 Kg', 'VF6SXTF24H7199976', 'maxity'],
+    ['7695LXK', 'RENAULT', 'CAMION', '3.500 Kg', 'VF6V000068984562', 'master'],
+    ['1111KDV', 'PEUGEOT PARTNER', 'COMERCIAL', '1.940 kg', 'VF37ABHW6HN530055', 'partner'],
+    ['3161JJW', 'CITROEN', 'COMERCIAL', '1.940 Kg', 'VF77A9HN0FN526323', 'berlingo'],
+    ['2187KRC', 'VW', 'COCHE', '', '', 'polo'],
+  ];
+  for (const [mat, marca, tipo, capacidad, bastidor, esperado] of flota) {
+    assert.equal(modeloDe(v({ matricula: mat, marca, tipo, capacidad, bastidor }))?.clave, esperado, mat);
+  }
+  assert.equal(modeloDe(v({ marca: 'MERCEDES SPRINTER' })), null);   // no se adivina: sale el dibujo de siempre
+  assert.equal(modeloDe(v({ marca: undefined as any, bastidor: undefined as any })), null);
+  assert.equal(kilos('12.000 Kg'), 12000);
+  assert.equal(kilos(''), 0);
+});
+prueba('las fotos de muestra existen y llevan autor y licencia', () => {
+  for (const m of Object.values(MODELOS)) {
+    assert.ok(existsSync(`public${m.img}`), `falta public${m.img}`);
+    assert.ok(m.autor && m.licencia && m.pagina.startsWith('https://commons.wikimedia.org/wiki/File:'), m.clave);
+  }
 });
 
 console.log(process.exitCode ? `\nHAY FALLOS (${n} pruebas bien)` : `✔ ${n} pruebas bien`);

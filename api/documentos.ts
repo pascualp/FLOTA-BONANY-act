@@ -1,7 +1,7 @@
 import { getAuth } from 'firebase-admin/auth';
 import { FieldValue } from 'firebase-admin/firestore';
 import { db, firebaseAdmin } from './_lib/flota.js';
-import { AVISO_CUOTA, borrar, esCuotaAgotada, esRutaDe, metadatos, rutaNueva, urlDescarga, urlSubida } from './_lib/archivos.js';
+import { AVISO_CUOTA, borrar, esCuotaAgotada, esIdVehiculo, esRutaDe, FOTO_MAX_BYTES, metadatos, rutaFoto, rutaNueva, urlDescarga, urlsFotos, urlSubida } from './_lib/archivos.js';
 import { esCategoria, MAX_BYTES, TIPOS_ARCHIVO } from '../src/documentos.js';
 import { AVISO_SIN_ACCESO, tieneAcceso } from '../src/acceso.js';
 
@@ -11,6 +11,11 @@ import { AVISO_SIN_ACCESO, tieneAcceso } from '../src/acceso.js';
 //   registrar {vehicleId, ruta, nombre, tipo, categoria}      → {id}         comprueba que el archivo llegó y crea la ficha
 //   bajar     {docId}                                          → {url} enlace de 10 min, o {legado:true} si es de los viejos
 //   borrar    {docId}                                          → {ok}  borra el archivo, sus trozos viejos y la ficha
+// Foto real de cada vehículo (26/11/2026; la web la reduce a JPEG antes de subirla):
+//   fotoSubir  {vehicleId, size}  → {url}   enlace de 15 min para el PUT a fotos/<id>.jpg (si ya había una, la sustituye)
+//   fotoLista  {vehicleId}        → {ok}    comprueba que llegó y que es una foto pequeña (si no, la borra)
+//   fotos      {}                 → {urls}  id del vehículo → enlace de 12 h, de todas las fotos de una vez
+//   fotoBorrar {vehicleId}        → {ok}
 
 const texto = (s: unknown, max = 200) => (typeof s === 'string' ? s.trim().slice(0, max) : '');
 
@@ -94,6 +99,38 @@ export default async function documentos(req: any, res: any) {
         await ref.delete();
         if (ruta) await borrar(ruta);
         console.log(`[documentos] ${quien} borró «${snap.get('name')}» (${ruta || trozos.length + ' trozos'})`);
+        return res.status(200).json({ ok: true });
+      }
+
+      case 'fotoSubir': {
+        if (!esIdVehiculo(b.vehicleId)) return res.status(400).json({ error: 'Falta el vehículo' });
+        const size = Number(b.size);
+        if (!(size > 0) || size > FOTO_MAX_BYTES) return res.status(400).json({ error: 'La foto pesa demasiado' });
+        if (!(await db().collection('vehicles').doc(b.vehicleId).get()).exists) return res.status(404).json({ error: 'Ese vehículo no existe' });
+        return res.status(200).json({ url: await urlSubida(rutaFoto(b.vehicleId), 'image/jpeg') });
+      }
+
+      case 'fotoLista': {
+        if (!esIdVehiculo(b.vehicleId)) return res.status(400).json({ error: 'Falta el vehículo' });
+        const ruta = rutaFoto(b.vehicleId);
+        const meta = await metadatos(ruta);
+        if (!meta) return res.status(400).json({ error: 'La foto no llegó al almacén: vuelve a intentarlo' });
+        // El enlace de subida no limita el tamaño: se comprueba lo que llegó de verdad.
+        if (meta.size > FOTO_MAX_BYTES || meta.tipo !== 'image/jpeg') {
+          await borrar(ruta);
+          return res.status(400).json({ error: 'La foto no vale (demasiado grande o no es una imagen)' });
+        }
+        console.log(`[documentos] ${quien} puso la foto de ${b.vehicleId} (${meta.size} B)`);
+        return res.status(200).json({ ok: true });
+      }
+
+      case 'fotos':
+        return res.status(200).json({ urls: await urlsFotos() });
+
+      case 'fotoBorrar': {
+        if (!esIdVehiculo(b.vehicleId)) return res.status(400).json({ error: 'Falta el vehículo' });
+        await borrar(rutaFoto(b.vehicleId));
+        console.log(`[documentos] ${quien} quitó la foto de ${b.vehicleId}`);
         return res.status(200).json({ ok: true });
       }
     }
