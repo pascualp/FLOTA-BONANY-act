@@ -1,0 +1,35 @@
+{
+  "_que": "Datos de los papeles ESCANEADOS en la oficina (Brother) el 25 y el 26/11/2026, leídos hoja por hoja a ojo (fechas clave con zoom). Lecturas: flota-facturas/2026-11-26/tanda3..5/paginas.json y la de la tanda 2 (5925MBD). 26/11, Facu: «revisa todos siempre de la misma manera, por algo te doy las cosas».",
+  "_por": "Papeles escaneados en la oficina (Claude, 26/11/2026)",
+  "cambios": {
+    "5925MBD": {
+      "confianza": "seguro",
+      "proximaITV": "20/09/2028",
+      "motivo": "ITV periódica FAVORABLE el 16/09/2026 (Palma II, informe 3.621.778, próxima 20/09/2028; también en la pegatina de la tarjeta)"
+    },
+    "7695LXK": {
+      "confianza": "seguro",
+      "proximaITV": "14/05/2028",
+      "bastidor": "VF6VG000068984562",
+      "motivo": "ITV: desfavorable el 21/04/2026 y FAVORABLE en 2.ª fase el 14/05/2026 (informe 3.570.227, próxima 14/05/2028). Bastidor según permiso, tarjeta ITV y ATP"
+    },
+    "2218KKT": {
+      "confianza": "seguro",
+      "proximaITV": "26/11/2027",
+      "motivo": "ITV periódica FAVORABLE el 26/11/2026 (Palma II, informe 3.649.655, próxima 26/11/2027)"
+    },
+    "5389JGM": {
+      "confianza": "seguro",
+      "proximaITV": "30/06/2026",
+      "revisionTacografo": "08/11/2026",
+      "motivo": "Última ITV en vigor hasta 30/06/2026; el 08/07/2026 salió DESFAVORABLE (3 defectos graves) y no consta otra: SIN ITV EN VIGOR. Tacógrafo: control periódico del 08/11/2024 → 08/11/2026"
+    },
+    "8855JCY": {
+      "confianza": "seguro",
+      "revisionTacografo": "01/08/2027",
+      "bastidor": "ZCFAF1EF702633775",
+      "fechaMatriculacion": "03/03/2015",
+      "motivo": "Tacógrafo: control periódico del 01/08/2025 (Talleres Antich) → 01/08/2027. Bastidor y 1.ª matriculación según el permiso de circulación (expedido 10/11/2025)"
+    }
+  }
+}

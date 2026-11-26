@@ -12,14 +12,16 @@ const { initializeApp, cert } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
 
 const BASE = 'ai-studio-fleetflow-d05cc4cc-ab71-46f2-9a22-2419c0f125f8';
-const CAMPOS = ['aseguradora', 'poliza', 'vencimientoSeguro', 'proximaITV', 'vencimientoATP', 'revisionTacografo'];
+// bastidor y fechaMatriculacion desde el 26/11 (papeles escaneados: el 7695LXK y el 8855JCY los tenían mal).
+const CAMPOS = ['aseguradora', 'poliza', 'vencimientoSeguro', 'proximaITV', 'vencimientoATP', 'revisionTacografo', 'bastidor', 'fechaMatriculacion'];
 const HISTORIAL_MAX = 15;
 const [, , clave, lista, accion, soloConfianza] = process.argv;
 const HACER = accion === 'hacer';
 
 const app = initializeApp({ credential: cert(require(path.resolve(clave))) });
 const db = getFirestore(app, BASE);
-const { cambios } = require(path.resolve(lista));
+const { cambios, _por } = require(path.resolve(lista));
+const POR = _por || 'Papeles del servidor (Claude, 25/11/2026)';   // lo que sale en el historial del vehículo
 const norm = (m) => String(m || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 
 (async () => {
@@ -42,7 +44,7 @@ const norm = (m) => String(m || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
     if (!lineas.length) { iguales++; continue; }
     console.log(`${HACER ? 'OK' : '+ '} ${mat} [${c.confianza}] ${lineas.join(' · ')}\n     (${c.motivo})`);
     if (!HACER) continue;
-    const cambio = { cuando: new Date().toISOString(), por: 'Papeles del servidor (Claude, 25/11/2026)', que: `${lineas.join('; ')}. ${c.motivo}`.slice(0, 300) };
+    const cambio = { cuando: new Date().toISOString(), por: POR, que: `${lineas.join('; ')}. ${c.motivo}`.slice(0, 300) };
     upd.historial = [cambio, ...(v.get('historial') || [])].slice(0, HISTORIAL_MAX);
     await v.ref.update(upd);
     aplicados++;

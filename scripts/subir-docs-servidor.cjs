@@ -65,7 +65,10 @@ const limpio = (n) => String(n || 'documento').normalize('NFD').replace(/[\u0300
       await db.collection('documents').add({
         vehicleId: v[0].id, name: nombre, type: tipo, size: datos.length, categoria, sha256: h,
         url: '', isChunked: false, storagePath: destino, uploadedAt: FieldValue.serverTimestamp(),
-        subidoPor: 'Servidor FLOTA (Claude, 25/11/2026)', origen: `FLOTA/ACTUAL/${carpeta}/${rel}`,
+        // Escaneos de la oficina (carpeta con ruta completa) ≠ papeles del servidor: que la ficha diga de dónde vienen.
+        ...(ruta.startsWith(SERVIDOR)
+          ? { subidoPor: 'Servidor FLOTA (Claude, 25/11/2026)', origen: `FLOTA/ACTUAL/${carpeta}/${rel}` }
+          : { subidoPor: `Escaneado en la oficina (Claude, ${new Date().toLocaleDateString('es-ES')})`, origen: `escaneo: ${rel}` }),
       });
       console.log(`OK ${mat} ${categoria.padEnd(24)} ${String(Math.round(datos.length / 1024)).padStart(6)} KB  ${nombre}`);
     }
