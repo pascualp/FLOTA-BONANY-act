@@ -4,7 +4,8 @@ import { cert, getApps, initializeApp, type App } from 'firebase-admin/app';
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 // «.js» aunque sea .ts: en Vercel corren como módulos ES de Node y sin extensión no los encuentra.
 import { getAllAlerts, normalizarMatricula, parseEsDate, TRAMITES } from '../../src/utils.js';
-import type { Alert, Vehicle } from '../../src/types.js';
+import { incidenciasDe } from '../../src/incidencias.js';
+import type { Alert, Incidencia, Vehicle } from '../../src/types.js';
 
 export const BASE_DE_DATOS = 'ai-studio-fleetflow-d05cc4cc-ab71-46f2-9a22-2419c0f125f8'; // = firestoreDatabaseId de firebase-applet-config.json
 export const URL_APP = 'https://flota-bonany-act-wine.vercel.app';
@@ -65,9 +66,11 @@ export interface Resumen {
   vencidos: Alert[];  // vencidos SIN cita
   proximos: Alert[];  // próximos a vencer SIN cita
   revisar: Alert[];   // fecha escrita que no se entiende («FALTA», «00/00/00»…) SIN cita: antes no salían en ningún sitio
+  incidencias: { vehicle: Vehicle; incidencia: Incidencia }[];   // incidencias pendientes (avisos del taller, averías…)
 }
 
 export function resumir(flota: Vehicle[]): Resumen {
+  const incidencias = flota.flatMap((v) => incidenciasDe(v).map((incidencia) => ({ vehicle: v, incidencia })));
   const alertas = getAllAlerts(flota) as Alert[];
   const conCita = alertas
     .filter((a) => a.cita)
@@ -78,6 +81,7 @@ export function resumir(flota: Vehicle[]): Resumen {
     vencidos: sinCita.filter((a) => a.status.status === 'danger'),
     proximos: sinCita.filter((a) => a.status.status === 'warning'),
     revisar: sinCita.filter((a) => a.status.status === 'unknown'),
+    incidencias,
   };
 }
 

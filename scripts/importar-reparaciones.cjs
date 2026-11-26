@@ -77,7 +77,7 @@ const euros = (n) => (n == null ? '' : n.toLocaleString('es-ES', { style: 'curre
         subidoPor: `Importación (${r.origen || 'escaneo'})`,
       })).id;
     }
-    await v.ref.collection('reparaciones').add({
+    const repRef = await v.ref.collection('reparaciones').add({
       fecha: r.fecha, dia: diaDe(r.fecha), que: r.que, taller: r.taller || '', factura: r.factura || '',
       importe: typeof r.importe === 'number' ? r.importe : null, km: r.km || null, ...(r.notas ? { notas: r.notas } : {}),
       ...(documentoId ? { documentoId } : {}), origen: r.origen || 'escaneo', ref,
@@ -88,7 +88,18 @@ const euros = (n) => (n == null ? '' : n.toLocaleString('es-ES', { style: 'curre
     const masNueva = !ult || diaDe(r.fecha) > diaDe(ult);
     const cambio = { cuando: new Date().toISOString(), por: 'Importación de facturas (Claude)', que: `Reparación: ${r.fecha} · ${r.que} · ${euros(r.importe)}`.slice(0, 300) };
     const historial = [cambio, ...(v.get('historial') || [])].slice(0, HISTORIAL_MAX);
-    await v.ref.update({ historial, ...(masNueva ? { ultimaReparacion: r.fecha } : {}) });
+    // Lo que el taller avisa que queda pendiente → incidencia del vehículo (sale cada mañana en Telegram).
+    // Misma forma que src/incidencias.ts (nuevaIncidencia / conIncidencia).
+    let incidencias;
+    if (r.notas) {
+      const hay = Array.isArray(v.get('incidencias')) ? v.get('incidencias') : [];
+      const texto = String(r.notas).trim().slice(0, 300);
+      if (!hay.some((x) => x.repId === repRef.id || String(x.texto).toLowerCase() === texto.toLowerCase())) {
+        incidencias = [...hay, { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), texto, fecha: r.fecha,
+          origen: `${r.taller || 'taller'}${r.factura ? ', factura ' + r.factura : ''}`.slice(0, 120), repId: repRef.id }];
+      }
+    }
+    await v.ref.update({ historial, ...(masNueva ? { ultimaReparacion: r.fecha } : {}), ...(incidencias ? { incidencias } : {}) });
     // Se vuelve a leer la ficha (1 lectura) para que la siguiente reparación del mismo vehículo parta del historial nuevo.
     vehs[vehs.indexOf(v)] = await v.ref.get();
     console.log(`OK ${linea}`);

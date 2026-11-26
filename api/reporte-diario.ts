@@ -52,16 +52,20 @@ export function separarRevisar(revisar: Alert[]) {
   return { faltan: [...faltan.entries()], malEscritas };
 }
 
-function montarCorreo({ conCita, vencidos, proximos, revisar }: Resumen, hoy: string) {
+function montarCorreo({ conCita, vencidos, proximos, revisar, incidencias }: Resumen, hoy: string) {
   const { faltan, malEscritas } = separarRevisar(revisar);
   const subject = `⚠️ Flotas Bonany ${hoy}: ${vencidos.length} vencidos / ${proximos.length} próximos` +
-    (conCita.length ? ` / ${conCita.length} con cita` : '') + (revisar.length ? ` / ${revisar.length} fechas a revisar` : '');
+    (conCita.length ? ` / ${conCita.length} con cita` : '') + (incidencias.length ? ` / ${incidencias.length} incidencias` : '') +
+    (revisar.length ? ` / ${revisar.length} fechas a revisar` : '');
   const html = `
   <div style="font-family:sans-serif;max-width:640px;margin:0 auto;padding:20px;border:1px solid #e2e8f0;border-radius:12px;">
     <h2 style="color:#1e293b;margin-top:0;">Trámites pendientes de la flota · ${esc(hoy)}</h2>
     ${conCita.length ? `<h3 style="color:#2563eb;margin-bottom:10px;">📅 CITAS SACADAS – pendientes de llevar (${conCita.length})</h3>${tabla(conCita.map((a) => ({ a, derecha: citaCorta(a) })), '#2563eb', '#eff6ff', '#dbeafe')}` : ''}
     ${vencidos.length ? `<h3 style="color:#dc2626;margin-bottom:10px;">⚠️ VENCIDOS (${vencidos.length})</h3>${tabla(vencidos.map((a) => ({ a, derecha: esc(a.date) })), '#dc2626', '#fef2f2', '#fee2e2')}` : ''}
     ${proximos.length ? `<h3 style="color:#d97706;margin-bottom:10px;">🔔 PRÓXIMOS A VENCER (${proximos.length})</h3>${tabla(proximos.map((a) => ({ a, derecha: esc(a.date) })), '#d97706', '#fffbeb', '#fef3c7')}` : ''}
+    ${incidencias.length ? `<h3 style="color:#b45309;margin-bottom:10px;">🛠 INCIDENCIAS PENDIENTES (${incidencias.length})</h3><table style="width:100%;border-collapse:collapse;margin-bottom:20px;">${
+      incidencias.map(({ vehicle: v, incidencia: i }) => `<tr style="background-color:#fffbeb;"><td style="padding:10px;font-weight:bold;color:#1e293b;border-bottom:1px solid #fde68a;">${esc(v.matricula)}</td><td style="padding:10px;color:#1e293b;border-bottom:1px solid #fde68a;">${esc(i.texto)}</td><td style="padding:10px;color:#64748b;text-align:right;border-bottom:1px solid #fde68a;">${esc(i.fecha)}${i.origen ? ' · ' + esc(i.origen) : ''}</td></tr>`).join('')
+    }</table>` : ''}
     ${revisar.length ? `<h3 style="color:#475569;margin-bottom:4px;">❓ FECHAS QUE HAY QUE REVISAR (${revisar.length})</h3><p style="margin:0 0 10px;color:#64748b;font-size:13px;">Faltan o están escritas de forma que no se entiende: ponlas bien en la app para que avise a tiempo.</p>${
       faltan.map(([tipo, mats]) => `<p style="margin:0 0 8px;color:#334155;font-size:14px;"><b>Falta la fecha de ${esc(tipo)}</b> (${mats.length}): ${mats.map(esc).join(', ')}</p>`).join('')
     }${malEscritas.length ? tabla(malEscritas.map((a) => ({ a, derecha: '«' + esc(a.date) + '»' })), '#475569', '#f8fafc', '#e2e8f0') : ''}` : ''}
@@ -88,7 +92,7 @@ const lineaCita = (a: Alert) =>
 const lineaAlerta = (a: Alert) =>
   `• <b>${esc(a.vehicle.matricula)}</b> ${esc(a.type)} — ${esc(a.date)}${a.vehicle.chofer ? ` (${esc(a.vehicle.chofer)})` : ''}`;
 
-export function textoTelegram({ conCita, vencidos, proximos, revisar }: Resumen) {
+export function textoTelegram({ conCita, vencidos, proximos, revisar, incidencias }: Resumen) {
   const dias = (a: Alert) => diasHasta(a.cita!.fecha);
   const hoy = conCita.filter((a) => dias(a) === 0);
   const manana = conCita.filter((a) => dias(a) === 1);
@@ -101,6 +105,8 @@ export function textoTelegram({ conCita, vencidos, proximos, revisar }: Resumen)
   if (resto.length) L.push('', '📅 <b>Citas sacadas, pendientes de llevar:</b>', ...resto.map(lineaCita));
   if (vencidos.length) L.push('', `⚠️ <b>VENCIDOS sin cita (${vencidos.length}):</b>`, ...vencidos.map(lineaAlerta));
   if (proximos.length) L.push('', `🔔 <b>Próximos a vencer (${proximos.length}):</b>`, ...proximos.map(lineaAlerta));
+  if (incidencias.length) L.push('', `🛠 <b>Incidencias pendientes (${incidencias.length}):</b>`,
+    ...incidencias.map(({ vehicle: v, incidencia: i }) => `• <b>${esc(v.matricula)}</b> ${esc(i.texto)} <i>(${esc(i.fecha)}${i.origen ? ' · ' + esc(i.origen) : ''})</i>`));
   if (revisar.length) {
     const { faltan, malEscritas } = separarRevisar(revisar);
     L.push('', `❓ <b>Fechas que faltan o que no entiendo, ponedlas bien (${revisar.length}):</b>`,
@@ -144,8 +150,8 @@ export default async function reporteDiario(req: any, res: any) {
     // 2) Leer la flota y separar citas, vencidos y próximos.
     const flota = await cargarFlota();
     const r = resumir(flota);
-    const cuenta = { conCita: r.conCita.length, vencidos: r.vencidos.length, proximos: r.proximos.length, revisar: r.revisar.length };
-    if (cuenta.conCita + cuenta.vencidos + cuenta.proximos + cuenta.revisar === 0) {
+    const cuenta = { conCita: r.conCita.length, vencidos: r.vencidos.length, proximos: r.proximos.length, revisar: r.revisar.length, incidencias: r.incidencias.length };
+    if (cuenta.conCita + cuenta.vencidos + cuenta.proximos + cuenta.revisar + cuenta.incidencias === 0) {
       console.log(`[reporte] ${pedidoPor}: nada pendiente, no se envía (${flota.length} vehículos)`);
       return res.status(200).json({ enviado: false, motivo: 'No hay trámites pendientes', vehiculos: flota.length });
     }

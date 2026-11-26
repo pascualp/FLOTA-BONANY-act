@@ -8,13 +8,14 @@ import { diaDe, euros, gastoPorAnio, leerImporte, ordenar } from '../reparacione
 import { abrirDocumento, subirDocumento, tipoDe } from '../lib/documentosApi';
 import { guardarCambios, quienWeb } from '../lib/guardarVehiculo';
 import { AVISO_CUOTA, esCuotaAgotada, MAX_BYTES, TIPOS_ARCHIVO } from '../documentos';
+import { conIncidencia, incidenciasDe, nuevaIncidencia } from '../incidencias';
 
 // Historial de reparaciones y mantenimiento de un vehículo (vehicles/<id>/reparaciones). Se lee solo mientras la ficha
 // está abierta. Cada reparación puede llevar su factura (foto o PDF, que va al almacén de archivos como «Factura de
 // taller»). Por Telegram: foto de la factura → el bot la lee y propone guardarla. Lo de Winclass se importa con un script.
 
 const clase = 'w-full border border-slate-200 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none';
-const vacio = { fecha: '', taller: '', que: '', importe: '', km: '', factura: '' };
+const vacio = { fecha: '', taller: '', que: '', importe: '', km: '', factura: '', pendiente: '' };
 const avisar = (que: string, e: any) => alert(esCuotaAgotada(e) ? AVISO_CUOTA : `${que}: ${e?.message || e}`);
 
 export const ReparacionesVehiculo = ({ vehiculo, demo }: { vehiculo: Vehicle; demo?: boolean }) => {
@@ -41,7 +42,7 @@ export const ReparacionesVehiculo = ({ vehiculo, demo }: { vehiculo: Vehicle; de
     setArchivo(null);
     setForm(r ? {
       fecha: aFechaInput(r.fecha), taller: r.taller || '', que: r.que, importe: r.importe != null ? String(r.importe) : '',
-      km: r.km ? String(r.km) : '', factura: r.factura || '',
+      km: r.km ? String(r.km) : '', factura: r.factura || '', pendiente: '',   // lo pendiente se gestiona en «Incidencias»
     } : { ...vacio });
   };
 
@@ -70,10 +71,15 @@ export const ReparacionesVehiculo = ({ vehiculo, demo }: { vehiculo: Vehicle; de
         await updateDoc(doc(db, 'vehicles', vehiculo.id, 'reparaciones', editando), datos);
         await guardarCambios(vehiculo, { ultimaReparacion: fecha }, `Reparación cambiada: ${resumen}`);
       } else {
-        await addDoc(collection(db, 'vehicles', vehiculo.id, 'reparaciones'), {
-          ...datos, origen: 'web', creadoPor: quienWeb(), creado: serverTimestamp(),
+        const pendiente = form.pendiente.trim();
+        const nueva = await addDoc(collection(db, 'vehicles', vehiculo.id, 'reparaciones'), {
+          ...datos, ...(pendiente ? { notas: pendiente } : {}), origen: 'web', creadoPor: quienWeb(), creado: serverTimestamp(),
         });
-        await guardarCambios(vehiculo, { ultimaReparacion: fecha }, `Reparación: ${resumen}`);
+        // Lo que el taller avisa que queda por hacer → incidencia pendiente (sale en Telegram cada mañana).
+        const extra = pendiente
+          ? { incidencias: conIncidencia(vehiculo, nuevaIncidencia(pendiente, fecha, `${form.taller.trim() || 'taller'}${form.factura.trim() ? ', factura ' + form.factura.trim() : ''}`, nueva.id)) }
+          : {};
+        await guardarCambios(vehiculo, { ultimaReparacion: fecha, ...extra }, `Reparación: ${resumen}${pendiente ? ' · incidencia: ' + pendiente : ''}`);
       }
       setForm(null);
     } catch (err) {
@@ -136,6 +142,11 @@ export const ReparacionesVehiculo = ({ vehiculo, demo }: { vehiculo: Vehicle; de
           <label className="text-xs font-bold text-slate-500 uppercase">Nº de factura
             <input value={form.factura} onChange={(e) => setForm({ ...form, factura: e.target.value })} className={clase + ' mt-1 bg-white'} />
           </label>
+          {!editando && (
+            <label className="text-xs font-bold text-slate-500 uppercase sm:col-span-2">Queda algo pendiente (aviso del taller)
+              <input value={form.pendiente} onChange={(e) => setForm({ ...form, pendiente: e.target.value })} className={clase + ' mt-1 bg-white'} placeholder="p. ej. pastillas delanteras para cambiar (sale como incidencia)" />
+            </label>
+          )}
           <label className="text-xs font-bold text-slate-500 uppercase">Factura (foto o PDF)
             <input type="file" accept=".pdf,image/*,application/pdf" onChange={(e) => setArchivo(e.target.files?.[0] || null)} className="block mt-1 text-xs" />
           </label>
@@ -154,7 +165,9 @@ export const ReparacionesVehiculo = ({ vehiculo, demo }: { vehiculo: Vehicle; de
             <li key={r.id} className="p-3 rounded-xl border border-slate-100 flex justify-between gap-3 flex-wrap">
               <div className="min-w-0 text-sm">
                 <p className="font-bold text-slate-700">{r.que}</p>
-                {r.notas && <p className="text-xs text-amber-700">⚠ {r.notas}</p>}
+                {r.notas && (incidenciasDe(vehiculo).some((i) => i.repId === r.id)
+                  ? <p className="text-xs text-amber-700">⚠ Pendiente: {r.notas}</p>
+                  : <p className="text-xs text-slate-400">✓ Aviso del taller (resuelto): {r.notas}</p>)}
                 <p className="text-xs text-slate-500">
                   {r.fecha}{r.taller ? ` · ${r.taller}` : ''}{r.km ? ` · ${r.km.toLocaleString('es-ES')} km` : ''}{r.factura ? ` · factura ${r.factura}` : ''}
                   {r.origen && r.origen !== 'web' ? ` · ${{ winclass: 'de Winclass', telegram: 'por Telegram', escaneo: 'factura escaneada' }[r.origen]}` : ''}

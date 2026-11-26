@@ -3,6 +3,7 @@ import { Car, FileSearch, ArchiveX, CheckCircle2, FileWarning } from 'lucide-rea
 import { Vehicle, VehicleDocument } from '../types';
 import { estadoDocumentacion } from '../documentos';
 import { getVehicleAlerts, papelesCaducados, problemasDe, VENCIMIENTOS } from '../utils';
+import { incidenciasDe } from '../incidencias';
 
 interface VehicleListProps {
   vehicles: Vehicle[];                                // la flota que SÍ tenemos
@@ -93,7 +94,8 @@ export const VehicleList = ({ vehicles, fuera, docsPorVehiculo, searchQuery, set
                         {p.pronto > 0 && <Insignia clase="bg-amber-100 text-amber-700">{p.pronto} {p.pronto === 1 ? 'vence pronto' : 'vencen pronto'}</Insignia>}
                         {p.revisar > 0 && <Insignia clase="bg-slate-100 text-slate-600">{p.revisar} {p.revisar === 1 ? 'fecha a revisar' : 'fechas a revisar'}</Insignia>}
                         {p.conCita > 0 && <Insignia clase="bg-blue-100 text-blue-700">📅 {p.conCita === 1 ? 'cita sacada' : `${p.conCita} citas sacadas`}</Insignia>}
-                        {p.vencidos + p.pronto + p.revisar + p.conCita === 0 && <Insignia clase="bg-emerald-50 text-emerald-700">✔ Al día</Insignia>}
+                        {incidenciasDe(v).length > 0 && <Insignia clase="bg-amber-100 text-amber-800">🛠 {incidenciasDe(v).length === 1 ? '1 incidencia' : `${incidenciasDe(v).length} incidencias`}</Insignia>}
+                        {p.vencidos + p.pronto + p.revisar + p.conCita + incidenciasDe(v).length === 0 && <Insignia clase="bg-emerald-50 text-emerald-700">✔ Al día</Insignia>}
                       </div>
                     </div>
                     <Car className="w-5 h-5 text-blue-400 shrink-0" />

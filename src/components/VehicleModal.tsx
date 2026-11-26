@@ -11,6 +11,7 @@ import { FichaFormulario } from './FichaFormulario';
 import { CitasVehiculo } from './CitasVehiculo';
 import { DocumentosVehiculo } from './DocumentosVehiculo';
 import { ReparacionesVehiculo } from './ReparacionesVehiculo';
+import { IncidenciasVehiculo } from './IncidenciasVehiculo';
 
 interface VehicleModalProps {
   selectedVehicle: Vehicle;
@@ -149,6 +150,7 @@ export const VehicleModal = ({ selectedVehicle: v, setSelectedVehicle, isEditing
           </div>
         )}
 
+        {!isEditing && <IncidenciasVehiculo vehiculo={v} />}
         {!isEditing && <CitasVehiculo vehiculo={v} />}
         <DocumentosVehiculo vehiculo={v} documentos={vehicleDocuments} />
         {!isEditing && <ReparacionesVehiculo vehiculo={v} demo={import.meta.env.DEV && new URLSearchParams(window.location.search).has('demo')} />}

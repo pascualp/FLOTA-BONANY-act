@@ -23,6 +23,10 @@ export interface Vehicle {
   // Últimos cambios (los más nuevos primero, como mucho HISTORIAL_MAX): quién, cuándo y qué. Lo escriben la web y el bot.
   historial?: Cambio[];
   ultimaReparacion?: string;   // dd/mm/aaaa de la última reparación apuntada (las reparaciones van en su subcolección)
+  // Incidencias PENDIENTES (26/11/2026, Facu: «las alertas [del taller] también tienen que salir en Telegram, como
+  // incidencias»). Al resolverse se quitan de aquí (y queda en el historial). Van en la ficha del vehículo para que la
+  // web, el reporte y el bot las vean sin leer nada más.
+  incidencias?: Incidencia[];
   createdAt?: Timestamp;
   // Citas ya sacadas y pendientes de llevar el vehículo (las pone el agente de Telegram al pulsar ✅)
   citas?: Partial<Record<ClaveTramite, Cita>>;
@@ -55,6 +59,14 @@ export interface Reparacion {
   ref?: string;           // clave en el sistema de origen (Winclass): para no importar dos veces lo mismo
   creadoPor?: string;
   creado?: Timestamp;
+}
+
+export interface Incidencia {
+  id: string;        // para resolverla
+  texto: string;     // «Pastillas de freno delanteras para cambiar»
+  fecha: string;     // dd/mm/aaaa: cuándo se detectó
+  origen: string;    // «Neuretec (Euromaster), factura 7733» · «Telegram · Facu» · «Web · …»
+  repId?: string;    // la reparación (factura) de la que sale, si sale de una
 }
 
 export interface Cambio {
