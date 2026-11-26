@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { doc as firestoreDoc, updateDoc } from 'firebase/firestore';
 import { Download, FileText, Loader2, Trash2, UploadCloud } from 'lucide-react';
 import { db } from '../lib/firebase';
@@ -27,6 +27,7 @@ export const DocumentosVehiculo = ({ vehiculo, documentos }: { vehiculo: Vehicle
   const [subiendo, setSubiendo] = useState(false);
   const [progreso, setProgreso] = useState<string | null>(null);
   const [abriendo, setAbriendo] = useState<string | null>(null);
+  const archivoRef = useRef<HTMLInputElement>(null);   // el botón «Subir» de cada papel que falta abre este selector
 
   const abrir = async (d: VehicleDocument) => {
     if (d.storagePath) {
@@ -99,24 +100,44 @@ export const DocumentosVehiculo = ({ vehiculo, documentos }: { vehiculo: Vehicle
             {subiendo ? <Loader2 className="w-4 h-4 animate-spin" /> : <UploadCloud className="w-4 h-4" />}
             {subiendo ? 'Subiendo…' : 'Subir archivo o foto'}
             {/* En el móvil ofrece hacer la foto con la cámara directamente. */}
-            <input type="file" multiple accept=".pdf,image/*,application/pdf" className="hidden" disabled={subiendo}
+            <input ref={archivoRef} type="file" multiple accept=".pdf,image/*,application/pdf" className="hidden" disabled={subiendo}
               onChange={async (e) => { const fs = Array.from(e.target.files || []); e.target.value = ''; await subir(fs); }} />
           </label>
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-2 mb-4">
-        {estado.exigidos.map((ex) => {
-          const vencido = caducados.includes(ex.categoria);
-          const clase = !ex.docs.length ? 'bg-red-50 text-red-600 border-red-100'
-            : vencido ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-emerald-50 text-emerald-700 border-emerald-100';
-          return (
-            <span key={ex.categoria} className={`text-[11px] font-bold px-2.5 py-1 rounded-full border ${clase}`}
-              title={!ex.docs.length ? 'No hay ningún documento de este tipo' : vencido ? 'Hay documento, pero la fecha ya pasó' : 'En regla'}>
-              {!ex.docs.length ? '✗' : vencido ? '⚠' : '✔'} {ex.categoria}{vencido && ex.docs.length ? ' (vencido)' : ''}
-            </span>
-          );
-        })}
+      {/* Qué papeles tiene que tener y cómo está cada uno, dicho con palabras (26/11/2026, Facu: «la ✗ confunde un
+          poco; que no confunda a una persona que lo ve por primera vez»). Lo que falta lleva su botón «Subir». */}
+      <div className="mb-4 rounded-2xl border border-slate-100 overflow-hidden">
+        <p className="px-3 py-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider bg-slate-50">Papeles que tiene que tener este vehículo</p>
+        <ul className="divide-y divide-slate-100">
+          {estado.exigidos.map((ex) => {
+            const falta = !ex.docs.length;
+            const vencido = !falta && caducados.includes(ex.categoria);
+            return (
+              <li key={ex.categoria} className="flex items-center justify-between gap-3 px-3 py-2">
+                <span className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                  <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${falta ? 'bg-red-500' : vencido ? 'bg-amber-500' : 'bg-emerald-500'}`} />
+                  {ex.categoria}
+                </span>
+                {falta ? (
+                  <span className="flex items-center gap-2 shrink-0">
+                    <span className="text-xs font-bold text-red-600">Falta</span>
+                    <button type="button" disabled={subiendo}
+                      onClick={() => { setCategoriaSubida(ex.categoria); archivoRef.current?.click(); }}
+                      className="text-xs font-bold px-3 py-1.5 rounded-lg bg-red-50 text-red-700 hover:bg-red-100 flex items-center gap-1 disabled:opacity-50">
+                      <UploadCloud className="w-3.5 h-3.5" />Subir
+                    </button>
+                  </span>
+                ) : vencido ? (
+                  <span className="text-xs font-bold text-amber-700 text-right">Subido, pero la fecha ya pasó</span>
+                ) : (
+                  <span className="text-xs font-bold text-emerald-700 shrink-0">✓ Subido</span>
+                )}
+              </li>
+            );
+          })}
+        </ul>
       </div>
 
       {progreso && (
@@ -132,7 +153,7 @@ export const DocumentosVehiculo = ({ vehiculo, documentos }: { vehiculo: Vehicle
           </div>
         ) : documentos.map((d) => (
           <div key={d.id} className="flex justify-between items-center gap-2 p-3 border border-slate-100 rounded-xl hover:bg-slate-50 flex-wrap">
-            <div className="flex items-center gap-3 min-w-0 flex-1">
+            <div className="flex items-center gap-3 min-w-[200px] flex-1">
               <div className="p-2 bg-blue-50 text-blue-600 rounded-lg shrink-0"><FileText className="w-5 h-5" /></div>
               <div className="min-w-0">
                 <p className="text-sm font-bold text-slate-700 break-words">{d.name}</p>

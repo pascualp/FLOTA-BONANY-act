@@ -117,7 +117,7 @@ export const VehicleList = ({ vehicles, fuera, docsPorVehiculo, searchQuery, set
                         {e.faltan.length === 0 ? (
                           <span className="flex items-center gap-1 text-emerald-600 font-bold"><CheckCircle2 className="w-3.5 h-3.5" /> Completa</span>
                         ) : (
-                          <span className="flex items-center gap-1 text-red-600 font-bold"><FileWarning className="w-3.5 h-3.5" /> {e.completos}/{e.total}</span>
+                          <span className="flex items-center gap-1 text-red-600 font-bold"><FileWarning className="w-3.5 h-3.5" /> Tiene {e.completos} de {e.total}</span>
                         )}
                       </div>
                       {e.faltan.length > 0 && <p className="text-[11px] text-red-500 mt-1">Falta: {e.faltan.join(', ')}</p>}
