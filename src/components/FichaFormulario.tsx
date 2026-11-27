@@ -4,8 +4,9 @@ import { Loader2 } from 'lucide-react';
 import type { Vehicle } from '../types';
 import { TRAMITES, VENCIMIENTOS, noAplica } from '../utils';
 import { CampoFecha } from './CampoFecha';
-import { guardarCambios } from '../lib/guardarVehiculo';
+import { guardarCambios, quienWeb } from '../lib/guardarVehiculo';
 import { AVISO_CUOTA, esCuotaAgotada } from '../documentos';
+import { leerKm, textoKm, ACEITE_CADA_KM, ACEITE_CADA_MESES } from '../aceite';
 
 // Formulario «Editar información» de la ficha de un vehículo.
 // Guarda SOLO lo que se ha cambiado, comparado con lo que había al abrirlo; así no se deshace lo que otro cambió
@@ -16,7 +17,11 @@ const ETIQUETA: Record<string, string> = {
   marca: 'Marca / modelo', tipo: 'Tipo', tipoCaja: 'Tipo de caja', capacidad: 'Capacidad', bastidor: 'Nº bastidor', chofer: 'Chófer',
   aseguradora: 'Aseguradora', poliza: 'Nº póliza', priority: 'Prioridad', fechaMatriculacion: 'F. matriculación',
   proximaITV: 'Próxima ITV', vencimientoATP: 'Vencimiento ATP', revisionTacografo: 'Revisión tacógrafo', vencimientoSeguro: 'Vencimiento del seguro',
+  km: 'Km actuales', aceiteFecha: 'Último cambio de aceite', aceiteKm: 'Km en ese cambio', aceiteCadaKm: 'Cambiar cada (km)', aceiteCadaMeses: 'Cambiar cada (meses)',
 };
+// Números de «Kilómetros y aceite» (27/11/2026). Vacío = sin dato (y en «cada…», lo general de src/aceite.ts).
+type CampoNumero = 'km' | 'aceiteKm' | 'aceiteCadaKm' | 'aceiteCadaMeses';
+const CAMPOS_NUMERO: CampoNumero[] = ['km', 'aceiteKm', 'aceiteCadaKm', 'aceiteCadaMeses'];
 export const TIPOS_VEHICULO = ['CAMION', 'FURGONETA', 'COMERCIAL', 'COCHE', 'REMOLQUE'];
 export const TIPOS_CAJA = ['FRIGO', 'ISO', 'LONA', 'CAJA SECA', 'SIN CAJA'];
 const clase = 'w-full border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none text-sm';
@@ -28,6 +33,8 @@ export const FichaFormulario = ({ vehiculo, onTerminar }: { vehiculo: Vehicle; o
     marca: inicial.marca || '', tipo: inicial.tipo || '', tipoCaja: inicial.tipoCaja || '', capacidad: inicial.capacidad || '',
     bastidor: inicial.bastidor || '', chofer: inicial.chofer || '', aseguradora: inicial.aseguradora || '', poliza: inicial.poliza || '',
   }));
+  const [numeros, setNumeros] = useState<Record<CampoNumero, string>>(() =>
+    Object.fromEntries(CAMPOS_NUMERO.map((c) => [c, inicial[c] ? String(inicial[c]) : ''])) as Record<CampoNumero, string>);
   const [prioridad, setPrioridad] = useState(inicial.priority || 'medium');
   const [fechas, setFechas] = useState<Record<string, string>>({});   // solo las que se han tocado
   const [guardando, setGuardando] = useState(false);
@@ -36,6 +43,14 @@ export const FichaFormulario = ({ vehiculo, onTerminar }: { vehiculo: Vehicle; o
     <div>
       <label className="block text-xs font-bold text-slate-500 uppercase mb-1">{ETIQUETA[c]}</label>
       <input value={texto[c]} onChange={(e) => setTexto({ ...texto, [c]: e.target.value })} className={clase} {...extra} />
+    </div>
+  );
+
+  const campoNumero = (c: CampoNumero, placeholder: string) => (
+    <div>
+      <label className="block text-xs font-bold text-slate-500 uppercase mb-1">{ETIQUETA[c]}</label>
+      <input value={numeros[c]} inputMode="numeric" placeholder={placeholder}
+        onChange={(e) => setNumeros({ ...numeros, [c]: e.target.value })} className={clase} />
     </div>
   );
 
@@ -49,6 +64,18 @@ export const FichaFormulario = ({ vehiculo, onTerminar }: { vehiculo: Vehicle; o
       if (ahora !== antes) { cambios[c] = ahora; lineas.push(`${ETIQUETA[c]}: ${antes || '—'} → ${ahora || '—'}`); }
     }
     if (prioridad !== (inicial.priority || 'medium')) { cambios.priority = prioridad; lineas.push(`Prioridad: ${prioridad}`); }
+    for (const c of CAMPOS_NUMERO) {
+      const txt = numeros[c].trim();
+      const n = txt ? (c === 'aceiteCadaMeses' ? (Number(txt) > 0 && Number(txt) < 121 ? Math.round(Number(txt)) : null) : leerKm(txt)) : null;
+      if (txt && n === null) { alert(`${ETIQUETA[c]}: «${txt}» no es un número válido.`); return; }
+      const antes = inicial[c] ?? null;
+      if (n === antes) continue;
+      cambios[c] = n === null ? deleteField() : n;
+      const ver = (x: number | null) => (x === null ? '—' : c === 'aceiteCadaMeses' ? `${x} meses` : textoKm(x));
+      lineas.push(`${ETIQUETA[c]}: ${ver(antes)} → ${ver(n)}`);
+      // Km nuevo a mano: es la lectura de hoy, de quien la apunta.
+      if (c === 'km' && n !== null) { cambios.kmFecha = new Date().toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' }); cambios.kmFuente = quienWeb(); }
+    }
     for (const [campo, valor] of Object.entries(fechas)) {
       const antes = String((inicial as any)[campo] ?? '');
       if (valor === antes) continue;
@@ -111,6 +138,19 @@ export const FichaFormulario = ({ vehiculo, onTerminar }: { vehiculo: Vehicle; o
           })}
           {campoTexto('aseguradora')}
           {campoTexto('poliza')}
+        </div>
+      </div>
+      <div className="space-y-4">
+        <h4 className="font-bold text-slate-800 border-b border-slate-100 pb-2">Kilómetros y aceite</h4>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {campoNumero('km', 'p. ej. 242.514 (lo que marca el cuentakilómetros)')}
+          <CampoFecha label={ETIQUETA.aceiteFecha} original={inicial.aceiteFecha} permitirNoAplica={false}
+            onCambio={(v) => setFechas((f) => ({ ...f, aceiteFecha: v }))} />
+          {campoNumero('aceiteKm', 'vacío si no se sabe')}
+          <div className="grid grid-cols-2 gap-3">
+            {campoNumero('aceiteCadaKm', `${ACEITE_CADA_KM} si se deja vacío`)}
+            {campoNumero('aceiteCadaMeses', `${ACEITE_CADA_MESES} si se deja vacío`)}
+          </div>
         </div>
       </div>
       <div className="flex justify-end gap-3 pt-6 border-t border-slate-100">

@@ -5,6 +5,7 @@ import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 // «.js» aunque sea .ts: en Vercel corren como módulos ES de Node y sin extensión no los encuentra.
 import { getAllAlerts, normalizarMatricula, parseEsDate, TRAMITES } from '../../src/utils.js';
 import { incidenciasDe } from '../../src/incidencias.js';
+import { estadoAceite, type EstadoAceite } from '../../src/aceite.js';
 import type { Alert, Incidencia, Vehicle } from '../../src/types.js';
 
 export const BASE_DE_DATOS = 'ai-studio-fleetflow-d05cc4cc-ab71-46f2-9a22-2419c0f125f8'; // = firestoreDatabaseId de firebase-applet-config.json
@@ -67,10 +68,15 @@ export interface Resumen {
   proximos: Alert[];  // próximos a vencer SIN cita
   revisar: Alert[];   // fecha escrita que no se entiende («FALTA», «00/00/00»…) SIN cita: antes no salían en ningún sitio
   incidencias: { vehicle: Vehicle; incidencia: Incidencia }[];   // incidencias pendientes (avisos del taller, averías…)
+  aceite: { vehicle: Vehicle; estado: EstadoAceite }[];          // cambio de aceite y filtros que toca o toca pronto (27/11/2026)
 }
 
 export function resumir(flota: Vehicle[]): Resumen {
   const incidencias = flota.flatMap((v) => incidenciasDe(v).map((incidencia) => ({ vehicle: v, incidencia })));
+  // Solo lo que toca o toca pronto: si falta el dato no se avisa cada mañana (sale en la web, en «Falta la fecha»).
+  const aceite = flota.map((v) => ({ vehicle: v, estado: estadoAceite(v) }))
+    .filter((x) => x.estado.status === 'danger' || x.estado.status === 'warning')
+    .sort((a, b) => (a.estado.status === 'danger' ? 0 : 1) - (b.estado.status === 'danger' ? 0 : 1));
   const alertas = getAllAlerts(flota) as Alert[];
   const conCita = alertas
     .filter((a) => a.cita)
@@ -82,6 +88,7 @@ export function resumir(flota: Vehicle[]): Resumen {
     proximos: sinCita.filter((a) => a.status.status === 'warning'),
     revisar: sinCita.filter((a) => a.status.status === 'unknown'),
     incidencias,
+    aceite,
   };
 }
 

@@ -13,7 +13,14 @@ const { getFirestore } = require('firebase-admin/firestore');
 
 const BASE = 'ai-studio-fleetflow-d05cc4cc-ab71-46f2-9a22-2419c0f125f8';
 // bastidor y fechaMatriculacion desde el 26/11 (papeles escaneados: el 7695LXK y el 8855JCY los tenían mal).
-const CAMPOS = ['aseguradora', 'poliza', 'vencimientoSeguro', 'proximaITV', 'vencimientoATP', 'revisionTacografo', 'bastidor', 'fechaMatriculacion'];
+// chofer desde el 27/11 (Facu: «ponle quién lo está llevando», según el conductor que sale en el GPS ControlGPS).
+// km y aceite desde el 27/11 (Facu: «hay que ir poniendo los kilómetros para llevar un control»; ver src/aceite.ts).
+// gps desde el 27/11: lo último leído del GPS (solo LECTURA del GPS). NO deja línea en el historial (si no, cada lectura
+// del GPS echaría del historial los cambios de verdad, que guarda solo 15).
+const CAMPOS = ['aseguradora', 'poliza', 'vencimientoSeguro', 'proximaITV', 'vencimientoATP', 'revisionTacografo', 'bastidor', 'fechaMatriculacion', 'chofer',
+  'km', 'kmFecha', 'kmFuente', 'aceiteFecha', 'aceiteKm', 'aceiteFuente', 'aceiteCadaKm', 'aceiteCadaMeses', 'gps'];
+const SIN_HISTORIAL = new Set(['gps']);
+const texto = (x) => (x !== null && typeof x === 'object' ? JSON.stringify(x) : String(x ?? ''));
 const HISTORIAL_MAX = 15;
 const [, , clave, lista, accion, soloConfianza] = process.argv;
 const HACER = accion === 'hacer';
@@ -34,18 +41,21 @@ const norm = (m) => String(m || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
     const v = vs[0];
     const upd = {};
     const lineas = [];
+    const otros = [];   // los que no van al historial (gps)
     for (const k of CAMPOS) {
       if (!(k in c)) continue;
-      const antes = String(v.get(k) ?? '');
-      if (antes.trim() === String(c[k]).trim()) continue;
+      const antes = texto(v.get(k));
+      if (antes.trim() === texto(c[k]).trim()) continue;
       upd[k] = c[k];
-      lineas.push(`${k}: ${antes || '—'} → ${c[k]}`);
+      (SIN_HISTORIAL.has(k) ? otros : lineas).push(`${k}: ${antes || '—'} → ${texto(c[k])}`);
     }
-    if (!lineas.length) { iguales++; continue; }
-    console.log(`${HACER ? 'OK' : '+ '} ${mat} [${c.confianza}] ${lineas.join(' · ')}\n     (${c.motivo})`);
+    if (!lineas.length && !otros.length) { iguales++; continue; }
+    console.log(`${HACER ? 'OK' : '+ '} ${mat} [${c.confianza}] ${[...lineas, ...otros].join(' · ').slice(0, 400)}\n     (${c.motivo})`);
     if (!HACER) continue;
-    const cambio = { cuando: new Date().toISOString(), por: POR, que: `${lineas.join('; ')}. ${c.motivo}`.slice(0, 300) };
-    upd.historial = [cambio, ...(v.get('historial') || [])].slice(0, HISTORIAL_MAX);
+    if (lineas.length) {
+      const cambio = { cuando: new Date().toISOString(), por: POR, que: `${lineas.join('; ')}. ${c.motivo}`.slice(0, 300) };
+      upd.historial = [cambio, ...(v.get('historial') || [])].slice(0, HISTORIAL_MAX);
+    }
     await v.ref.update(upd);
     aplicados++;
   }

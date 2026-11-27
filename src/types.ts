@@ -42,6 +42,28 @@ export interface Vehicle {
   baja?: boolean;
   bajaMotivo?: string;
   bajaFecha?: string;   // dd/MM/yyyy
+  // Kilómetros y cambio de aceite y filtros (27/11/2026, Facu: «hay que ir poniendo los kilómetros para llevar un
+  // control» y «que salga una alerta del cambio de aceite y filtro»). Ver src/aceite.ts.
+  // OJO: el cuentakilómetros del GPS está mal en muchos (cuenta desde que se puso el aparato): aquí va el km REAL.
+  km?: number;              // última lectura del cuentakilómetros
+  kmFecha?: string;         // dd/mm/aaaa de esa lectura
+  kmFuente?: string;        // de dónde sale: «Informe ITV 26/11/2026», «Factura Refricar», «Web · correo», «GPS (sin comprobar)»
+  aceiteFecha?: string;     // último cambio de aceite y filtros (dd/mm/aaaa)
+  aceiteKm?: number;        // km en ese cambio, si se sabe (sin él solo se cuenta por meses)
+  aceiteFuente?: string;    // «Factura Mecánica Balear TL2/260785», «Web · correo»…
+  aceiteCadaKm?: number;    // cada cuántos km toca (si no, ACEITE_CADA_KM de src/aceite.ts)
+  aceiteCadaMeses?: number; // cada cuántos meses toca (si no, ACEITE_CADA_MESES)
+  // Lo último que se leyó del GPS ControlGPS (27/11/2026; del GPS SOLO se lee, nunca se cambia nada allí).
+  gps?: Gps;
+}
+
+export interface Gps {
+  leido: string;        // ISO: cuándo se leyó el GPS
+  conductor: string;    // tal cual sale en el GPS («MAMADOU DEME», «TALLER ISUZU», «MEBASA»…; '' si no tiene)
+  taller?: string;      // si el «conductor» es uno de los «00 TALLER …» del GPS: el nombre del taller
+  senal: string;        // última señal del vehículo, «27/11/26 09:12»
+  motor?: string;       // «Motor encendido», «Motor apagado», «Indefinido»
+  velocidad?: number;   // km/h en la última señal
 }
 
 // Trámites que se llevan a un sitio con cita (ITV, ATP, tacógrafo). El seguro vence pero no tiene cita.

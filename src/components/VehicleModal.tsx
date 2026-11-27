@@ -13,6 +13,7 @@ import { CitasVehiculo } from './CitasVehiculo';
 import { DocumentosVehiculo } from './DocumentosVehiculo';
 import { ReparacionesVehiculo } from './ReparacionesVehiculo';
 import { IncidenciasVehiculo } from './IncidenciasVehiculo';
+import { KmAceiteVehiculo } from './KmAceiteVehiculo';
 
 interface VehicleModalProps {
   selectedVehicle: Vehicle;
@@ -157,6 +158,7 @@ export const VehicleModal = ({ selectedVehicle: v, setSelectedVehicle, isEditing
           </div>
         )}
 
+        {!isEditing && <KmAceiteVehiculo vehiculo={v} demo={demo} />}
         {!isEditing && <IncidenciasVehiculo vehiculo={v} />}
         {!isEditing && <CitasVehiculo vehiculo={v} />}
         <DocumentosVehiculo vehiculo={v} documentos={vehicleDocuments} />

@@ -1,0 +1,17 @@
+{
+  "_que": "Chófer de cada vehículo según el GPS (ControlGPS, track10.controlgps.es): captura que pasó Facu el 27/11/2026 ~09:07, cotejada con la lectura exacta del 23/11. Facu: «ponle quién lo está llevando». Solo los que tienen un conductor de verdad (no «TALLER …» ni los que salen sin nadie).",
+  "_por": "GPS ControlGPS (Claude, 27/11/2026)",
+  "cambios": {
+    "5331KLB": { "confianza": "seguro", "chofer": "JUAN LUIS REYNOSO", "motivo": "Conductor asignado en el GPS el 27/11/2026" },
+    "9785MSD": { "confianza": "seguro", "chofer": "MAMADOU DEME", "motivo": "Conductor asignado en el GPS el 27/11/2026" },
+    "5925MBD": { "confianza": "seguro", "chofer": "ALFREDO", "motivo": "Conductor asignado en el GPS el 27/11/2026" },
+    "6221LJM": { "confianza": "seguro", "chofer": "MARIO MUÑOZ", "motivo": "Conductor asignado en el GPS el 27/11/2026 (ojo: el GPS no da señal desde el 12/11/2026)" },
+    "4666HWY": { "confianza": "seguro", "chofer": "PEDRO SIQUIER SOCIAS", "motivo": "Conductor asignado en el GPS el 27/11/2026 (el 23/11 ponía TALLER NEURETEC)" },
+    "3956FDZ": { "confianza": "seguro", "chofer": "JOSE CARLOS MAGAN TORRES", "motivo": "Conductor asignado en el GPS el 27/11/2026" },
+    "2218KKT": { "confianza": "seguro", "chofer": "OUSSAMA", "motivo": "Conductor asignado en el GPS el 27/11/2026" },
+    "8031MHJ": { "confianza": "seguro", "chofer": "DANIEL MARTINEZ", "motivo": "Conductor asignado en el GPS el 27/11/2026 y el 23/11 (en la app ponía TONI ARTIGUEZ)" },
+    "7695LXK": { "confianza": "seguro", "chofer": "FELIX BERMUDEZ", "motivo": "Conductor asignado en el GPS el 27/11/2026" },
+    "5254JWZ": { "confianza": "seguro", "chofer": "MUSTAPHA AKODAD", "motivo": "Conductor asignado en el GPS el 27/11/2026" },
+    "7525LTS": { "confianza": "seguro", "chofer": "JUANJO VILLALONGA ARRECIO", "motivo": "Conductor asignado en el GPS el 27/11/2026" }
+  }
+}

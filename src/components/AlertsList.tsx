@@ -3,6 +3,7 @@ import { CheckCircle2, ChevronRight, Search } from 'lucide-react';
 import type { Vehicle } from '../types';
 import { fechaEnPantalla, fraseVencimiento, getVehicleAlerts, NOMBRE_CORTO, parseEsDate, type AlertaVehiculo } from '../utils';
 import { incidenciasDe } from '../incidencias';
+import { estadoAceite } from '../aceite';
 import { ImagenVehiculo } from './FotoVehiculo';
 
 // «Qué hay que hacer» (rehecha el 26/11/2026, Facu: «mejora la interfaz para que no confunda a una persona que lo ve
@@ -27,8 +28,18 @@ const tipoDe = (a: AlertaVehiculo): Tipo | null =>
   a.cita ? 'cita' : a.status === 'danger' ? 'vencido' : a.status === 'warning' ? 'pronto' : a.status === 'unknown' ? 'falta' : null;
 const cuando = (fecha: string) => parseEsDate(fecha)?.getTime() ?? Number.MAX_SAFE_INTEGER;
 
-// Lo que hay que hacer de un vehículo: sus vencimientos que no están en regla y sus incidencias del taller.
+// El cambio de aceite y filtros (27/11/2026): «toca» va con lo caducado, «pronto» con lo que caduca pronto y si falta
+// el dato, con lo que falta apuntar.
+const TIPO_ACEITE: Record<string, Tipo | null> = { danger: 'vencido', warning: 'pronto', unknown: 'falta', success: null };
+const aceiteDe = (v: Vehicle): Cosa[] => {
+  const a = estadoAceite(v);
+  const t = TIPO_ACEITE[a.status];
+  return t ? [{ tipo: t, clave: 'aceite', que: 'Aceite y filtros', frase: a.frase, cuando: cuando(v.aceiteFecha || '') }] : [];
+};
+
+// Lo que hay que hacer de un vehículo: sus vencimientos que no están en regla, el aceite y sus incidencias del taller.
 const cosasDe = (v: Vehicle): Cosa[] => [
+  ...aceiteDe(v),
   ...getVehicleAlerts(v).flatMap((a) => {
     const t = tipoDe(a);
     return t ? [{ tipo: t, clave: a.clave, que: NOMBRE_CORTO[a.clave], frase: fraseVencimiento(a), cuando: cuando(a.date) }] : [];

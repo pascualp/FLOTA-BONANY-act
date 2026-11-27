@@ -89,6 +89,7 @@ export function FotoFicha({ v, url, demo, onFotoLocal }: FotoFichaProps) {
       <div className="relative w-full sm:w-72 shrink-0">
         {src ? (
           <img src={src} alt={real ? `Foto de ${v.matricula}` : `${modelo?.nombre} (foto de muestra)`} onError={alFallar}
+            title={!real && modelo ? `Foto de muestra: ${modelo.nombre} · ${modelo.autor} · ${modelo.licencia} (Wikimedia Commons), fondo quitado` : undefined}
             className={`w-full aspect-[3/2] rounded-2xl border border-slate-200 ${encaje}`} />
         ) : (
           <div className="w-full aspect-[3/2] rounded-2xl border border-dashed border-slate-300 bg-slate-50 flex items-center justify-center">
@@ -109,12 +110,9 @@ export function FotoFicha({ v, url, demo, onFotoLocal }: FotoFichaProps) {
           {real ? (
             <>Foto real{v.foto ? `, puesta el ${v.foto.fecha} (${v.foto.por.replace(/^Web · /, '')})` : ''}.</>
           ) : modelo ? (
-            <>
-              <b className="text-slate-700">{modelo.nombre}</b>: foto de muestra del modelo, no es el nuestro.{' '}
-              <a href={modelo.pagina} target="_blank" rel="noreferrer" className="underline hover:text-slate-700">
-                Foto: {modelo.autor} · {modelo.licencia} (Wikimedia Commons), fondo quitado
-              </a>
-            </>
+            // 27/11/2026, Facu: «esto no lo quiero, no me importa» (la línea de «foto de muestra… Foto: autor · licencia»).
+            // El autor y la licencia quedan solo al pasar el ratón por la foto (title), sin ocupar la ficha.
+            null
           ) : (
             <>No sé qué modelo es: pon la marca y el modelo en «Editar información», o haz una foto.</>
           )}

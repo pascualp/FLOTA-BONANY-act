@@ -5,6 +5,8 @@ import { estadoDocumentacion } from '../documentos';
 import { copiaDe } from '../copiaCamion';
 import { fechaEnPantalla, fraseVencimiento, getVehicleAlerts, NOMBRE_CORTO, papelesCaducados, problemasDe, VENCIMIENTOS, type AlertaVehiculo } from '../utils';
 import { incidenciasDe } from '../incidencias';
+import { estadoAceite, textoKm } from '../aceite';
+import { enRepartoHoy, enTaller } from '../gps';
 import { ImagenVehiculo } from './FotoVehiculo';
 
 interface VehicleListProps {
@@ -46,7 +48,9 @@ const textoCasilla = (f?: AlertaVehiculo) =>
   !f ? 'No le toca' : f.text === 'Falta la fecha' ? 'Falta apuntarla' : f.cita ? `Cita el ${f.cita.fecha}`
     : f.status === 'unknown' ? `${f.date} (no se entiende)` : `${f.status === 'danger' ? 'Caducó el' : 'Hasta el'} ${fechaEnPantalla(f.date)}`;
 
-type Filtro = 'todos' | 'faltanPapeles' | 'sinCopia';
+// «En reparto hoy» y «En el taller» salen del GPS (27/11/2026, Facu: «saber si los coches de los chóferes que están en
+// reparto están en regla o qué falta» y «ver quiénes están en el taller»).
+type Filtro = 'todos' | 'reparto' | 'taller' | 'faltanPapeles' | 'sinCopia';
 
 export const VehicleList = ({ vehicles, fuera, docsPorVehiculo, fotos, searchQuery, setSearchQuery, setSelectedVehicle }: VehicleListProps) => {
   const [filtro, setFiltro] = useState<Filtro>('todos');
@@ -54,8 +58,13 @@ export const VehicleList = ({ vehicles, fuera, docsPorVehiculo, fotos, searchQue
   const estado = (v: Vehicle) => estadoDocumentacion(v, docsPorVehiculo[v.id || ''] || []);
   const faltanPapeles = vehicles.filter(v => estado(v).faltan.length > 0).length;
   const sinCopia = vehicles.filter(v => !copiaDe(v)).length;
+  const enReparto = vehicles.filter(v => enRepartoHoy(v)).length;
+  const enElTaller = vehicles.filter(v => enTaller(v)).length;
   const pasaFiltro = (v: Vehicle) =>
-    filtro === 'faltanPapeles' ? estado(v).faltan.length > 0 : filtro === 'sinCopia' ? !copiaDe(v) : true;
+    filtro === 'faltanPapeles' ? estado(v).faltan.length > 0 : filtro === 'sinCopia' ? !copiaDe(v)
+      : filtro === 'reparto' ? enRepartoHoy(v) : filtro === 'taller' ? !!enTaller(v) : true;
+  // Cuándo se leyó el GPS por última vez (para decirlo debajo de las pestañas: la lista es tan nueva como esa lectura).
+  const ultimaLectura = vehicles.map(v => v.gps?.leido || '').sort().pop();
   const activos = vehicles.filter(v => coincide(v, term) && pasaFiltro(v));
   const deFuera = fuera.filter(v => coincide(v, term));
 
@@ -88,9 +97,17 @@ export const VehicleList = ({ vehicles, fuera, docsPorVehiculo, fotos, searchQue
         </div>
         <div className="flex flex-wrap gap-2">
           {pestana('todos', 'Todos', vehicles.length, 'bg-slate-800 text-white border-slate-800')}
+          {pestana('reparto', '🚚 En reparto hoy', enReparto, 'bg-emerald-50 text-emerald-800 border-emerald-300')}
+          {pestana('taller', '🔧 En el taller', enElTaller, 'bg-orange-50 text-orange-800 border-orange-300')}
           {pestana('faltanPapeles', 'Faltan papeles', faltanPapeles, 'bg-red-50 text-red-700 border-red-300')}
           {pestana('sinCopia', 'Sin copia en el camión', sinCopia, 'bg-blue-50 text-blue-800 border-blue-300')}
         </div>
+        {(filtro === 'reparto' || filtro === 'taller') && (
+          <p className="text-xs text-slate-500">
+            {filtro === 'reparto' ? 'Los que en el GPS tienen chófer puesto y han dado señal hoy, con lo que les falta o les caduca. ' : 'Los que en el GPS tienen puesto un taller de «conductor». '}
+            {ultimaLectura ? `Según el GPS leído el ${new Date(ultimaLectura).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}.` : 'Todavía no se ha leído el GPS.'}
+          </p>
+        )}
       </div>
       <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-8 bg-slate-50/60">
         {activos.length === 0 ? (
@@ -98,7 +115,9 @@ export const VehicleList = ({ vehicles, fuera, docsPorVehiculo, fotos, searchQue
             <Car className="w-12 h-12 mb-4 opacity-50" />
             <p>{term ? 'No se encontraron vehículos que coincidan con la búsqueda.'
               : filtro === 'sinCopia' ? 'Todos llevan ya la copia de los papeles en el camión.'
-              : filtro === 'faltanPapeles' ? 'A ninguno le faltan papeles.' : 'No hay vehículos en la flota.'}</p>
+              : filtro === 'faltanPapeles' ? 'A ninguno le faltan papeles.'
+              : filtro === 'reparto' ? 'Según la última lectura del GPS, hoy no ha salido ninguno.'
+              : filtro === 'taller' ? 'Según la última lectura del GPS, no hay ninguno en el taller.' : 'No hay vehículos en la flota.'}</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
@@ -108,6 +127,10 @@ export const VehicleList = ({ vehicles, fuera, docsPorVehiculo, fotos, searchQue
               const e = estado(v);
               const incs = incidenciasDe(v).length;
               const copia = copiaDe(v);
+              const aceite = estadoAceite(v);
+              const taller = enTaller(v);
+              const reparto = enRepartoHoy(v);
+              const avisaAceite = aceite.status === 'danger' || aceite.status === 'warning';
               // Papeles que tiene pero cuya fecha ya pasó: «tener el PDF» no es estar en regla.
               const vencidos = papelesCaducados(v).filter(c => e.exigidos.some(x => x.categoria === c && x.docs.length));
               return (
@@ -125,15 +148,19 @@ export const VehicleList = ({ vehicles, fuera, docsPorVehiculo, fotos, searchQue
                         <h5 className="text-lg font-bold text-slate-900 leading-tight">{v.matricula}</h5>
                         <p className="text-xs text-slate-500 truncate">{[v.marca, v.tipo].filter(Boolean).join(' · ')}</p>
                         {v.chofer && <p className="text-xs text-slate-500 truncate">{v.chofer}</p>}
+                        {v.km ? <p className="text-xs text-slate-500 truncate">{textoKm(v.km)}{v.kmFecha ? ` · ${fechaEnPantalla(v.kmFecha)}` : ''}</p> : null}
                       </div>
                     </div>
                     <div className="flex flex-wrap gap-1.5 mt-3">
+                      {taller && <Insignia clase="bg-orange-100 text-orange-800">🔧 En el taller ({taller})</Insignia>}
+                      {reparto && <Insignia clase="bg-emerald-100 text-emerald-800">🚚 En reparto hoy</Insignia>}
+                      {avisaAceite && <Insignia clase={aceite.status === 'danger' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-800'}>🛢 {aceite.status === 'danger' ? 'Toca el aceite' : 'Aceite pronto'}</Insignia>}
                       {p.vencidos > 0 && <Insignia clase="bg-red-100 text-red-700">{p.vencidos} {p.vencidos === 1 ? 'caducado' : 'caducados'}</Insignia>}
                       {p.pronto > 0 && <Insignia clase="bg-amber-100 text-amber-800">{p.pronto === 1 ? '1 caduca pronto' : `${p.pronto} caducan pronto`}</Insignia>}
                       {p.revisar > 0 && <Insignia clase="bg-slate-100 text-slate-600">{p.revisar === 1 ? 'falta 1 fecha' : `faltan ${p.revisar} fechas`}</Insignia>}
                       {p.conCita > 0 && <Insignia clase="bg-blue-100 text-blue-700">📅 {p.conCita === 1 ? 'cita pedida' : `${p.conCita} citas pedidas`}</Insignia>}
                       {incs > 0 && <Insignia clase="bg-orange-100 text-orange-800">🛠 {incs === 1 ? '1 aviso del taller' : `${incs} avisos del taller`}</Insignia>}
-                      {p.vencidos + p.pronto + p.revisar + p.conCita + incs === 0 && <Insignia clase="bg-emerald-50 text-emerald-700">✔ Todo en regla</Insignia>}
+                      {p.vencidos + p.pronto + p.revisar + p.conCita + incs === 0 && !avisaAceite && <Insignia clase="bg-emerald-50 text-emerald-700">✔ Todo en regla</Insignia>}
                     </div>
                   </div>
 
@@ -152,6 +179,11 @@ export const VehicleList = ({ vehicles, fuera, docsPorVehiculo, fotos, searchQue
                           </div>
                         );
                       })}
+                      {/* Aceite y filtros (27/11/2026): no es una fecha que caduca, pero se avisa igual. */}
+                      <div className={`rounded-xl border px-3 py-2 min-w-0 ${TONO[aceite.status]}`} title={aceite.frase}>
+                        <p className="text-[10px] font-bold uppercase tracking-wide opacity-70 truncate">Aceite y filtros</p>
+                        <p className={`text-[13px] leading-snug ${aceite.status !== 'success' ? 'font-bold' : 'font-medium'}`}>{aceite.corto}</p>
+                      </div>
                     </div>
                   </Parte>
 

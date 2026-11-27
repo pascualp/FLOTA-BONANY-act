@@ -9,6 +9,8 @@ import { arregladaPor, queArregla } from '../src/incidencias.ts';
 import { copiaDe, fechaCopiaMal, textoCopia } from '../src/copiaCamion.ts';
 import { esFestivo, planificar, tareasPendientes } from '../src/planificador.ts';
 import { kilos, modeloDe, MODELOS } from '../src/modelos.ts';
+import { estadoAceite, leerKm, textoKm } from '../src/aceite.ts';
+import { enRepartoHoy, fechaSenal, tallerDe, diasSinSenal } from '../src/gps.ts';
 import { existsSync } from 'node:fs';
 import type { Vehicle } from '../src/types.ts';
 
@@ -216,6 +218,56 @@ prueba('las fotos de muestra existen y llevan autor y licencia', () => {
     assert.ok(existsSync(`public${m.img}`), `falta public${m.img}`);
     assert.ok(m.autor && m.licencia && m.pagina.startsWith('https://commons.wikimedia.org/wiki/File:'), m.clave);
   }
+});
+
+// ---------- Kilómetros y aceite (27/11/2026) ----------
+prueba('km: leer lo que se teclea y escribirlo', () => {
+  assert.equal(leerKm('242.514'), 242514);
+  assert.equal(leerKm('242514 km'), 242514);
+  assert.equal(leerKm('242 514'), 242514);
+  assert.equal(leerKm(89865), 89865);
+  for (const x of ['', 'abc', '0', '-', '99999999']) assert.equal(leerKm(x), null, `«${x}»`);
+  assert.equal(textoKm(242514), '242.514 km');
+  assert.equal(textoKm(5000), '5.000 km');
+  assert.equal(textoKm(950), '950 km');
+});
+prueba('aceite: cuándo toca', () => {
+  // Sin nada apuntado → falta el dato.
+  assert.equal(estadoAceite(v({}), HOY).status, 'unknown');
+  // Solo la fecha (lo de Winclass): cuenta por meses (12 por defecto).
+  assert.equal(estadoAceite(v({ aceiteFecha: '06/11/2026' }), HOY).status, 'success');
+  assert.equal(estadoAceite(v({ aceiteFecha: '07/07/2023' }), HOY).status, 'danger');
+  assert.equal(estadoAceite(v({ aceiteFecha: '10/12/2025' }), HOY).status, 'warning');   // toca el 10/12/2026: en 15 días
+  assert.match(estadoAceite(v({ aceiteFecha: '06/11/2026' }), HOY).frase, /cuenta por meses/);
+  // Por km: 30.000 por defecto, avisa 2.000 antes.
+  assert.equal(estadoAceite(v({ aceiteFecha: '01/10/2026', aceiteKm: 200000, km: 231000 }), HOY).status, 'danger');
+  assert.equal(estadoAceite(v({ aceiteFecha: '01/10/2026', aceiteKm: 200000, km: 228500 }), HOY).status, 'warning');
+  assert.equal(estadoAceite(v({ aceiteFecha: '01/10/2026', aceiteKm: 200000, km: 210000 }), HOY).corto, 'Faltan 20.000 km');
+  // Lo que marca la ficha manda sobre lo general.
+  assert.equal(estadoAceite(v({ aceiteFecha: '01/10/2026', aceiteKm: 200000, km: 216000, aceiteCadaKm: 15000 }), HOY).status, 'danger');
+  assert.equal(estadoAceite(v({ aceiteFecha: '01/05/2026', aceiteCadaMeses: 6 }), HOY).status, 'danger');
+  // Km de ahora menor que el del cambio → se pide revisar, no se adivina.
+  assert.equal(estadoAceite(v({ aceiteKm: 200000, km: 150000 }), HOY).status, 'unknown');
+  // Km del cambio sin fecha ni km de ahora → falta el dato (antes de esta prueba, esto rompía).
+  assert.equal(estadoAceite(v({ aceiteKm: 200000 }), HOY).status, 'unknown');
+});
+
+// ---------- GPS (27/11/2026): del GPS solo se lee ----------
+prueba('GPS: talleres y «en reparto hoy»', () => {
+  assert.equal(tallerDe('TALLER ISUZU'), 'ISUZU');
+  assert.equal(tallerDe('MEBASA'), 'MEBASA');
+  assert.equal(tallerDe('TM ALCUDIA'), 'TM ALCUDIA');
+  assert.equal(tallerDe('00 TALLER NEURETEC'), 'NEURETEC');
+  assert.equal(tallerDe('MAMADOU DEME'), undefined);
+  assert.equal(tallerDe(''), undefined);
+  assert.equal(f(fechaSenal('27/11/26 09:12')), '27/11/2026');
+  const g = (senal: string, taller?: string) => v({ gps: { leido: '2026-11-25T10:00:00Z', conductor: 'X', senal, ...(taller ? { taller } : {}) } });
+  assert.equal(enRepartoHoy(g('25/11/26 08:48'), HOY), true);
+  assert.equal(enRepartoHoy(g('12/11/26 10:41'), HOY), false);           // sin señal hoy
+  assert.equal(enRepartoHoy(g('25/11/26 07:47', 'MEBASA'), HOY), false); // en el taller
+  assert.equal(enRepartoHoy(v({}), HOY), false);
+  assert.equal(enRepartoHoy(v({ gps: { leido: '2026-11-25T10:00:00Z', conductor: '', senal: '25/11/26 09:12' } }), HOY), false); // sin chófer: parado en la base
+  assert.equal(diasSinSenal(g('12/11/26 10:41'), HOY), 13);
 });
 
 console.log(process.exitCode ? `\nHAY FALLOS (${n} pruebas bien)` : `✔ ${n} pruebas bien`);

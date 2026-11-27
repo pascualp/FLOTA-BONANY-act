@@ -1,10 +1,11 @@
 // Imagen de cada vehículo (26/11/2026, Facu: «me gustaría tener una pequeña imagen del modelo del camión»; eligió «las
 // dos»): una foto de MUESTRA del modelo, que sale sola, y la foto REAL del camión cuando alguien la haga desde la ficha.
 //
-// Las fotos de muestra están en public/modelos/ y son de Wikimedia Commons con licencia libre. Las CC BY-SA obligan a
-// citar al autor y la licencia, y por eso se ven debajo de la foto en la ficha.
+// Las fotos de muestra están en public/modelos/ y son de Wikimedia Commons con licencia libre. Las CC BY-SA piden
+// citar al autor y la licencia (y decir que se ha cambiado: «fondo quitado»). Desde el 27/11 (Facu: «esto no lo quiero,
+// no me importa») ya no hay una línea debajo de la foto: va en el texto que sale al pasar el ratón por la foto.
 // Desde el 26/11 (Facu: «necesito que las imágenes sean con fondo blanco»), el vehículo va recortado sobre blanco
-// (scripts/fondo-blanco-modelos.py). La licencia pide decir que se ha cambiado: la ficha pone «fondo quitado».
+// (scripts/fondo-blanco-modelos.py).
 //
 // El modelo NO se apunta a mano: se saca de la marca, el bastidor, el peso y el tipo que ya tiene la ficha. Así sale
 // también en los que solo pone «IVECO» y en los que se den de alta mañana. Comprobado con los 24 de la flota el 26/11:
